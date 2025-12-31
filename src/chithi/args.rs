@@ -131,6 +131,12 @@ pub struct Args {
     #[arg(long)]
     pub no_rollback: bool,
 
+    /// With this argument, snapshots which are missing on the source will be
+    /// destroyed on the target. Use this if you only want to handle snapshots
+    /// on the source.
+    #[arg(long)]
+    pub delete_target_snapshots: bool,
+
     /// Exclude specific datasets that match the given regular expression. Can be specified multiple times.
     #[arg(long, value_name = "REGEX")]
     pub exclude_datasets: Vec<Regex>,

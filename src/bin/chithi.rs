@@ -989,12 +989,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn newest_sync_snap<'a>(&self, source_snaps: &'a [Snapshot<String>]) -> Option<&'a String> {
-        let len = source_snaps.len();
-        if len > 0 {
-            source_snaps.get(len - 1).map(|snapshot| &snapshot.name)
-        } else {
-            None
-        }
+        source_snaps.last().map(|snapshot| &snapshot.name)
     }
 
     fn get_matching_snapshot<'a>(
@@ -1089,45 +1084,12 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         zfs.status(self.args.debug)
     }
 
-    fn prune_old_sync_snaps(
-        &self,
-        fs: &Fs,
-        snapshots: &[Snapshot<String>],
-        new_snapshot: &str,
-        hostname: &str,
-    ) -> io::Result<()> {
-        let format_prefixes = self
-            .args
-            .prune_formats
-            .iter()
-            .map(|format| {
-                format!(
-                    "{format}_{}{hostname}",
-                    self.args.identifier.as_deref().unwrap_or_default()
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut snaps = Vec::new();
-        for snap in snapshots {
-            // Don't delete newly created snapshots
-            if snap.name == new_snapshot {
-                continue;
-            }
-            if format_prefixes
-                .iter()
-                .any(|format_prefix| snap.name.starts_with(format_prefix))
-            {
-                snaps.push(format!("{}@{}", fs.fs, snap.name));
-            }
-        }
-        if snaps.is_empty() {
-            return Ok(());
-        }
+    fn delete_snapshots(&self, fs: &Fs, snapshots: &[String]) -> io::Result<()> {
         let zfs = self.pick_zfs(fs.role);
         let target = zfs.target();
         let zfs = zfs.to_mut().to_local();
         const MAX_PRUNE: usize = 10usize;
-        for chunk in snaps.chunks(MAX_PRUNE) {
+        for chunk in snapshots.chunks(MAX_PRUNE) {
             let cmds = chunk
                 .iter()
                 .map(|snap| {
@@ -1155,12 +1117,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
                     debug!("dry-run not running {sequence}");
                     continue;
                 }
-                let mut seq = sequence.to_cmd();
-                let status = seq
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()?;
+                let status = sequence.status(self.args.debug)?;
                 // Sequences will silently ignore failures in the middle
                 if !status.success() {
                     warn!("'{}' failed with: {status}", sequence);
@@ -1168,6 +1125,48 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             };
         }
         Ok(())
+    }
+
+    fn snaps_to_prune(
+        &self,
+        snapshots: &mut Vec<Snapshot<String>>,
+        new_snapshot: &str,
+        hostname: &str,
+    ) -> Vec<String> {
+        let format_prefixes = self
+            .args
+            .prune_formats
+            .iter()
+            .map(|format| {
+                format!(
+                    "{format}_{}{hostname}",
+                    self.args.identifier.as_deref().unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>();
+        snapshots
+            .extract_if(.., |snap| {
+                snap.name != new_snapshot
+                    && format_prefixes
+                        .iter()
+                        .any(|format_prefix| snap.name.starts_with(format_prefix))
+            })
+            .map(|snap| snap.name)
+            .collect::<Vec<_>>()
+    }
+
+    fn prune_old_sync_snaps(
+        &self,
+        fs: &Fs,
+        snapshots: &mut Vec<Snapshot<String>>,
+        new_snapshot: &str,
+        hostname: &str,
+    ) -> io::Result<()> {
+        let snaps = self.snaps_to_prune(snapshots, new_snapshot, hostname);
+        if snaps.is_empty() {
+            return Ok(());
+        }
+        self.delete_snapshots(fs, &snaps)
     }
 
     fn prune_bookmarks(&self, source: &Fs, bookmarks: &[&Snapshot<String>]) -> io::Result<()> {
@@ -1347,26 +1346,24 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         // Finally do syncs
         // If target does not exist, create it with inital full sync, and get target snaps
         let mut target_snaps_list = if !target_exists {
-            if self.args.no_stream {
+            let fake_new = Snapshot::fake_newest(newest_sync_snapshot.clone());
+            let fake_new = (&fake_new).into();
+            let sync_to = if self.args.no_stream {
                 debug!(
                     "target {target} does not exist, and --no-stream selected. Syncing newest snapshot for {source}"
                 );
-                // for --no-stream were done here
-                // TODO (but not cleanup)
-                if source.origin.is_some() && target.origin.is_some() {
-                    return self.sync_clone(source, target, &newest_sync_snapshot);
-                } else {
-                    return self.sync_full(source, target, &newest_sync_snapshot);
-                }
-            }
+                &fake_new
+            } else {
+                &oldest_snapshot
+            };
             // Do initial sync from oldest snapshot, then do -I or -i to the newest
             if source.origin.is_some() && target.origin.is_some() {
-                self.sync_clone(source, target, oldest_snapshot.name)?
+                self.sync_clone(source, target, sync_to.name)?
             } else {
-                self.sync_full(source, target, oldest_snapshot.name)?
+                self.sync_full(source, target, sync_to.name)?
             }
             target_created = true;
-            vec![(&oldest_snapshot).into()]
+            vec![sync_to.into()]
         } else {
             self.get_snaps(target)?
         };
@@ -1471,23 +1468,32 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
                     if self.args.no_stream {
                         // for --no-stream were done here
                         // TODO (but not cleanup)
-                        return self.sync_full(source, target, &newest_sync_snapshot);
+                        self.sync_full(source, target, &newest_sync_snapshot)?;
+                        target_snaps_list = vec![(&oldest_snapshot).into()];
+                        target_snaps_map = Snapshot::list_to_map(&target_snaps_list);
+                        target_created = true;
                     } else {
                         self.sync_full(source, target, oldest_snapshot.name)?;
                         target_snaps_list = vec![(&oldest_snapshot).into()];
                         target_snaps_map = Snapshot::list_to_map(&target_snaps_list);
-                        let Some(matching_snapshots) =
-                            self.get_matching_snapshot(&source_snaps, &target_snaps_map)
-                        else {
-                            error!(
-                                "internal error, target snapshots list created from oldest snapshot, but getting matching list failed"
-                            );
-                            return Err(io::Error::other(
-                                "building matching snapshots from oldest failed",
-                            ));
-                        };
-                        matching_snapshots
+                        target_created = true;
                     }
+                    let Some(matching_snapshots) =
+                        self.get_matching_snapshot(&source_snaps, &target_snaps_map)
+                    else {
+                        error!(
+                            "internal error, target snapshots list created from {} snapshot, but getting matching list failed",
+                            if self.args.no_stream {
+                                "newest"
+                            } else {
+                                "oldest"
+                            }
+                        );
+                        return Err(io::Error::other(
+                            "building matching snapshots from oldest failed",
+                        ));
+                    };
+                    matching_snapshots
                 } else {
                     error!(
                         "NOTE: Target dataset {target} exists but has no snapshots matching with {source}"
@@ -1501,29 +1507,32 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         };
 
         if matching_and_later.1.is_empty() {
-            // message is not that meaningful if target was just created with the latest snapshot or we resumed to the latest stapshot
-            if !target_created && !resumed {
+            if target_created || resumed {
+                info!(
+                    "no newer newer than {} in {source}, syncing done, nothing more to do",
+                    matching_and_later.0.source()
+                )
+            } else {
                 info!(
                     "no snapshots newer than {} in {source}. Target {target} up to date, nothing to do, not syncing.",
                     matching_and_later.0.source()
                 );
+                return Ok(());
             }
-            // TODO decide if hold management, sync-snap-pruning is needed for target_created || resumed
-            return Ok(());
-        }
-
-        // If we got this far, target exists now and has matching snapshot
-        if self.args.no_stream {
-            // for --no-stream we do a single -i stream to newest and finish
-            self.sync_intermidiate(
-                source,
-                target,
-                &matching_and_later.0,
-                &matching_and_later.1.last().expect("non-empty checked").name,
-            )?
         } else {
-            self.sync_incremental_or_fallback(source, target, &matching_and_later)?
-        };
+            // If we got this far, target exists now and has matching snapshot
+            if self.args.no_stream {
+                // for --no-stream we do a single -i stream to newest and finish
+                self.sync_intermidiate(
+                    source,
+                    target,
+                    &matching_and_later.0,
+                    &matching_and_later.1.last().expect("non-empty checked").name,
+                )?
+            } else {
+                self.sync_incremental_or_fallback(source, target, &matching_and_later)?
+            };
+        }
 
         if self.args.use_hold != "false"
             && !self.args.use_hold.is_empty()
@@ -1617,11 +1626,23 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         }
 
         if !self.args.keep_sync_snap
-            && let Some(new_sync_snap) = created_new_sync_snap
+            && let Some(new_sync_snap) = &created_new_sync_snap
         {
             let hostname = hostname()?;
-            self.prune_old_sync_snaps(source, &source_snaps, &new_sync_snap, &hostname)?;
-            self.prune_old_sync_snaps(target, &target_snaps_list, &new_sync_snap, &hostname)?;
+            self.prune_old_sync_snaps(source, &mut source_snaps, new_sync_snap, &hostname)?;
+            self.prune_old_sync_snaps(target, &mut target_snaps_list, new_sync_snap, &hostname)?;
+        }
+
+        if self.args.delete_target_snapshots {
+            let source_snaps = Snapshot::list_to_map(&source_snaps)
+                .keys()
+                .cloned()
+                .collect::<HashSet<_>>();
+            let snaps_to_delete = target_snaps_list
+                .extract_if(.., |snap| source_snaps.contains(snap.name.as_str()))
+                .map(|snap| snap.name)
+                .collect::<Vec<_>>();
+            self.delete_snapshots(target, &snaps_to_delete)?;
         }
 
         Ok(())

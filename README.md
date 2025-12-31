@@ -70,9 +70,6 @@ release the binary for chithi if I finish the following features.
 ## Current TODOs for Chithi
 
 - Preserve properties
-- Cleanup
-  + Manage target snapshots
-  + Cleanup for --no-stream
 
 # Contributing
 I am not accepting PRs or contributions to the project. The project isn't ready
