@@ -16,7 +16,9 @@
 
 use crate::chithi::compress::Compress;
 use crate::chithi::send_recv_opts::{OptionsLine, Opts};
+use crate::chithi::zfs;
 use bw::Bytes;
+use chrono::format::StrftimeItems;
 use clap::{Parser, Subcommand};
 use regex_lite::Regex;
 use std::collections::HashSet;
@@ -83,6 +85,12 @@ pub struct Args {
     #[arg(long)]
     pub no_stream: bool,
 
+    /// Timestamp format. All invalid characters in the format will be dropped.
+    /// Formatting details can be found in the chrono::format::strftime
+    /// documentation.
+    #[arg(long, default_value="%Y-%m-%d:%H:%M:%S-GMT%:z", value_parser = Args::validate_timestamp)]
+    pub timestamp_format: String,
+
     /// Does not create new snapshot, only transfers existing
     #[arg(long)]
     pub no_sync_snap: bool,
@@ -126,6 +134,17 @@ pub struct Args {
     /// "syncoid" to make syncoid compatible holds.
     #[arg(long, default_value = "false", default_missing_value = "true", value_parser = ["true", "false", "syncoid"], num_args = 0..=1)]
     pub use_hold: String,
+
+    /// Preserves the recordsize on inital sends to the target
+    #[arg(long, conflicts_with = "preserve_properties")]
+    pub preserve_recordsize: bool,
+
+    /// Preserves locally set dataset properties similar to the zfs send -p
+    /// flag, but will also work for encrypted datasets in non raw sends.
+    /// Properties are manually fetched on the source and manually written to on
+    /// the target, with a blacklist of properties that cannot be written.
+    #[arg(long, conflicts_with = "preserve_recordsize")]
+    pub preserve_properties: bool,
 
     /// Does not rollback snapshots on target (it probably requires a readonly target)
     #[arg(long)]
@@ -322,6 +341,15 @@ impl Args {
         args
     }
 
+    pub fn get_timestamp(&self) -> String {
+        let now = chrono::Local::now();
+        let formatted = format!("{}", now.format(&self.timestamp_format));
+        formatted
+            .chars()
+            .filter(|&c| zfs::is_component_char(c))
+            .collect()
+    }
+
     /// Returns false for now. In the future, we might allow direct ssh/tls (or
     /// even insecure tcp) connections between remote hosts.
     pub fn direct_connection(&self) -> bool {
@@ -330,12 +358,19 @@ impl Args {
 
     fn validate_identifier(value: &str) -> Result<String, &'static str> {
         fn invalid_char(c: char) -> bool {
-            !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.')
+            !zfs::is_component_char(c)
         }
         if value.contains(invalid_char) {
             Err("extra indentifier contains invalid chars!")
         } else {
             Ok(value.to_string())
         }
+    }
+
+    fn validate_timestamp(value: &str) -> Result<String, &'static str> {
+        if StrftimeItems::new(value).parse().is_ok() {
+            return Ok(value.to_string());
+        }
+        Err("invalid timestamp format see chrono time formats")
     }
 }

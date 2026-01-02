@@ -48,6 +48,13 @@ some more escaping might be needed.
 9. We have `--max-bookmarks` to cleanup bookmarks after creating new bookmarks.
    This is off by default. There's very little reason to delete bookmarks since
    they are extermely cheap, but sometimes it is nice to tidy things up.
+10. The `--preserve-properties` flag handles user properties that contain tab
+    characters properly. The cost of doing this is (1) we make an additional
+    call to just get the list of local properties, and (2) we fetch the each
+    user property separately. An alternative approach would have been to use
+    OpenZFS's json output, but the json output feature is too new and not widely
+    available.
+11. Cli `--timestamp-format`.
 
 # Why Rust? Why Not Go?
 There are no technical or social reasons why I'm choosing Rust. Go would have

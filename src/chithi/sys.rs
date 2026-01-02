@@ -14,7 +14,6 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use chrono::{Datelike, Timelike};
 use std::os::fd::{AsRawFd, RawFd};
 use std::{ffi, io, process};
 
@@ -57,25 +56,6 @@ pub fn hostname() -> io::Result<String> {
         .to_str()
         .map_err(|e| io::Error::other(format!("failed to obtain hostname from c string: {e}")))?;
     Ok(hostname.to_string())
-}
-
-/// Gets the date and time with a timezone offset
-pub fn get_syncoid_date() -> String {
-    let local = chrono::Local::now();
-    let year = local.year();
-    let mon = local.month();
-    let mday = local.day();
-    let hour = local.hour();
-    let min = local.minute();
-    let sec = local.second();
-    let tz_offset = local.offset().local_minus_utc();
-    let sign = if tz_offset < 0 { "-" } else { "" }; // + is not allowed in a snapshot name
-    let tz_offset = tz_offset.unsigned_abs();
-    let hours = tz_offset / 3600;
-    let minutes = (tz_offset / 60) - (hours * 60);
-    format!(
-        "{year:04}-{mon:02}-{mday:02}:{hour:02}:{min:02}:{sec:02}-GMT{sign}{hours:02}:{minutes:02}"
-    )
 }
 
 // Utility functions for captures

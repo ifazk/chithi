@@ -16,6 +16,10 @@
 
 use std::collections::HashMap;
 
+pub fn is_component_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.'
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Creation {
     pub creation: u64,

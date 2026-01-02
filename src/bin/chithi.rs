@@ -16,7 +16,7 @@
 
 use chobi::AutoTerminate;
 use chobi::chithi::sync_pipelines::OptionalCommands;
-use chobi::chithi::sys::{get_syncoid_date, hostname};
+use chobi::chithi::sys::hostname;
 use chobi::chithi::util::ReadableBytes;
 use chobi::chithi::zfs::{Creation, IntermediateSource, Snapshot, SnapshotInfo};
 use chobi::chithi::{Args, Cli, Cmd, CmdTarget, Commands, Fs, Role, Sequence, get_is_roots};
@@ -414,7 +414,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
 
     fn run_sync_cmd(
         &self,
-        _source: &Fs,
+        source: &Fs,
         send_from: (Option<&str>, &str),
         send_to: Option<&str>,
         target: &Fs,
@@ -452,8 +452,19 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             recv_options.push("-F");
         }
 
+        let mut recsize;
         // TODO preserve properties (user properties are pretty much the only thing that needs escaping since they are arbitrary strings)
-        // TODO preserve recordsize
+        if self.args.preserve_recordsize
+            // https://github.com/jimsalterjrs/sanoid/pull/437#issuecomment-628310658
+            // tonymmm1 commented on May 13, 2020:
+            // Can you add a function to check if dataset is zvol otherwise it will error out and skip.
+            && let Ok("filesystem") = self.get_zfs_value(source, &["type"]).as_deref()
+        {
+            recsize = self.get_zfs_value(source, &["recordsize"])?;
+            recv_options.push("-o");
+            recsize = format!("recordsize={}", recsize);
+            recv_options.push(&recsize);
+        }
 
         let send_cmd = {
             let mut args = Vec::from(["send"]);
@@ -951,7 +962,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
 
     fn new_sync_snap(&self, fs: &Fs) -> io::Result<Option<String>> {
         let hostname = hostname()?;
-        let date = get_syncoid_date();
+        let date = self.args.get_timestamp();
         let snap_name = format!(
             "chithi_{}{hostname}_{date}",
             self.args.identifier.as_deref().unwrap_or_default()
