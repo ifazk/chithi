@@ -389,6 +389,19 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Cmd<'args, T> {
         cmd.status()
     }
 
+    /// Captures the stdout of the command. Stderr is inherited if debug is
+    /// true, and nulled otherwise.
+    pub fn output(&self, debug: bool) -> io::Result<Output> {
+        let mut cmd = self.to_cmd();
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped());
+        if debug {
+            cmd.stderr(Stdio::inherit());
+        } else {
+            cmd.stderr(Stdio::null());
+        };
+        cmd.output()
+    }
+
     pub fn to_mut(&self) -> Cmd<'args, Vec<&'cmd str>> {
         self.into()
     }

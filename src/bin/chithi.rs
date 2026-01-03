@@ -258,7 +258,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         source_zfs.args(LIST_CHILD_DATASET);
         source_zfs.arg(fs.fs.as_ref());
         debug!("getting list of child datasets for {fs} using {source_zfs}...");
-        let output = source_zfs.capture_stdout()?;
+        let output = source_zfs.output(self.args.debug)?;
         if !output.status.success() {
             error!("failed to get child datasets for {fs}");
             return Err(io::Error::other("failed to get child datasets"));
@@ -298,6 +298,163 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             Role::Source => &self.source_zfs,
             Role::Target => &self.target_zfs,
         }
+    }
+
+    fn get_local_zfs_property_list(&self, fs: &Fs) -> io::Result<(Vec<String>, Vec<String>)> {
+        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        zfs.args(["get", "-H", "-o", "property", "-s", "local", "all", &fs.fs]);
+        debug!(
+            "getting list of local properties on {} with {zfs}...",
+            zfs.target()
+        );
+        let output = zfs.output(self.args.debug)?;
+        if !output.status.success() {
+            error!(
+                "failed to get list of properties on {}, command {zfs} exited with: {}",
+                zfs.target(),
+                output.status
+            );
+            return Err(io::Error::other("failed to get zfs property list"));
+        };
+        let stdout = str::from_utf8(&output.stdout)
+            .map_err(|e| {
+                io::Error::other(format!("could not parse output of {zfs} {}: {e}", fs.fs))
+            })?
+            .trim();
+        let properties = stdout
+            .split_terminator("\n")
+            .map(str::trim)
+            .filter(|s| s.is_empty())
+            .map(str::to_string)
+            .partition::<Vec<_>, _>(|prop| !prop.contains(':'));
+        Ok(properties)
+    }
+
+    fn get_local_zfs_system_properties(
+        &self,
+        fs: &Fs,
+        properties: Vec<String>,
+    ) -> io::Result<Vec<(String, String)>> {
+        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let properties = properties.join(",");
+        zfs.args([
+            "get",
+            "-H",
+            "-o",
+            "property,value",
+            "-s",
+            "local",
+            &properties,
+        ]);
+        debug!(
+            "getting local system properties on {} with {zfs}...",
+            zfs.target()
+        );
+        let output = zfs.output(self.args.debug)?;
+        if !output.status.success() {
+            error!(
+                "failed to get system properties on {}, command {zfs} exited with: {}",
+                zfs.target(),
+                output.status
+            );
+            return Err(io::Error::other("failed to get zfs system properties"));
+        };
+        let stdout = str::from_utf8(&output.stdout)
+            .map_err(|e| {
+                io::Error::other(format!("could not parse output of {zfs} {}: {e}", fs.fs))
+            })?
+            .trim();
+
+        let mut map = Vec::new();
+        // filterout properties which cannot be written
+        const BLACKLIST: [&str; 36] = [
+            "available",
+            "compressratio",
+            "createtxg",
+            "creation",
+            "clones",
+            "defer_destroy",
+            "encryptionroot",
+            "filesystem_count",
+            "keystatus",
+            "guid",
+            "logicalreferenced",
+            "logicalused",
+            "mounted",
+            "objsetid",
+            "origin",
+            "receive_resume_token",
+            "redact_snaps",
+            "referenced",
+            "refcompressratio",
+            "snapshot_count",
+            "type",
+            "used",
+            "usedbychildren",
+            "usedbydataset",
+            "usedbyrefreservation",
+            "usedbysnapshots",
+            "userrefs",
+            "snapshots_changed",
+            "volblocksize",
+            "written",
+            "version",
+            "volsize",
+            "casesensitivity",
+            "normalization",
+            "utf8only",
+            "encryption",
+        ];
+        for line in stdout.lines() {
+            let Some((property, value)) = line.split_once("\t") else {
+                return Err(io::Error::other(format!(
+                    "expected tab separated property and value, got {line}"
+                )));
+            };
+            if !BLACKLIST.contains(&property) {
+                map.push((property.to_string(), value.to_string()));
+            }
+        }
+        Ok(map)
+    }
+
+    fn get_local_zfs_user_property(&self, fs: &Fs, property: &str) -> io::Result<Vec<u8>> {
+        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        zfs.args(["get", "-H", "-o", "value", "-s", "local", &property]);
+        debug!(
+            "getting local user property {property} on {} with {zfs}...",
+            zfs.target()
+        );
+        let output = zfs.output(self.args.debug)?;
+        if !output.status.success() {
+            error!(
+                "failed to get system properties on {}, command {zfs} exited with: {}",
+                zfs.target(),
+                output.status
+            );
+            return Err(io::Error::other("failed to get zfs system properties"));
+        };
+        let mut stdout = output.stdout;
+        // remove newline
+        stdout.pop();
+
+        Ok(stdout)
+    }
+
+    fn get_local_zfs_values(
+        &self,
+        fs: &Fs,
+    ) -> io::Result<(Vec<(String, String)>, Vec<(String, Vec<u8>)>)> {
+        let (system_properties, user_properties) = self.get_local_zfs_property_list(fs)?;
+        let system_properties = self.get_local_zfs_system_properties(fs, system_properties)?;
+        let user_properties = user_properties
+            .into_iter()
+            .map(|property| {
+                self.get_local_zfs_user_property(fs, &property)
+                    .map(|value| (property, value))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((system_properties, user_properties))
     }
 
     /// Returns ErrorKind::NotFound if dataset does not exist
@@ -354,8 +511,12 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             cmd_target.pretty_str()
         );
 
-        let output = zpool.capture_stdout()?.stdout;
-        let output = String::from_utf8_lossy(&output);
+        let output = zpool.capture_stdout()?;
+        if !output.status.success() {
+            error!("command {zpool} exited with {}", output.status);
+            return Err(io::Error::other("checking resume feature failed"));
+        }
+        let output = String::from_utf8_lossy(&output.stdout);
         Ok(output.contains("active") || output.contains("enabled"))
     }
 
@@ -389,7 +550,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         source_zfs.arg("-nvP");
         source_zfs.args(&from_to);
         debug!("getting estimated transfer size from source using {source_zfs}...");
-        let output = source_zfs.capture_stdout()?;
+        let output = source_zfs.output(self.args.debug)?;
         if !output.status.success() {
             error!("failed to get estimated size for {}", from_to.join(" "));
             return Err(io::Error::other("failed to get estimated send size"));
@@ -452,9 +613,17 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             recv_options.push("-F");
         }
 
+        let mut system_properties;
+        let mut user_properties;
         let mut recsize;
-        // TODO preserve properties (user properties are pretty much the only thing that needs escaping since they are arbitrary strings)
-        if self.args.preserve_recordsize
+        if self.args.preserve_properties {
+            (system_properties, user_properties) = self.get_local_zfs_values(source)?;
+            for (prop, value) in &mut system_properties {
+                recv_options.push("-o");
+                *value = format!("{}={}", prop, value);
+                recv_options.push(value);
+            }
+        } else if self.args.preserve_recordsize
             // https://github.com/jimsalterjrs/sanoid/pull/437#issuecomment-628310658
             // tonymmm1 commented on May 13, 2020:
             // Can you add a function to check if dataset is zvol otherwise it will error out and skip.
@@ -975,9 +1144,9 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             let mut zfs = self.pick_zfs(fs.role).to_mut();
             zfs.args(["snapshot", fs_snapshot.as_str()]);
             debug!("creating sync snapshot using {zfs}...");
-            let output = zfs.capture_stdout()?;
+            let status = zfs.status(self.args.debug)?;
 
-            if !output.status.success() {
+            if !status.success() {
                 error!("failed to create snapshot {fs_snapshot}");
                 return Err(io::Error::other("failed to create snapshot"));
             }
