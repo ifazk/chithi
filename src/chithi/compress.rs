@@ -14,7 +14,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::{ffi::OsString, fmt::Display};
 
 #[derive(Debug, Clone, Default)]
 pub enum Compress {
@@ -37,6 +37,15 @@ pub struct CompressCommand {
     pub args: &'static [&'static str],
     pub decompress: &'static str,
     pub decompress_args: &'static [&'static str],
+}
+
+impl CompressCommand {
+    pub fn get_compress_args(&self) -> Vec<OsString> {
+        self.args.iter().map(Into::into).collect()
+    }
+    pub fn get_decompress_args(&self) -> Vec<OsString> {
+        self.decompress_args.iter().map(Into::into).collect()
+    }
 }
 
 impl Compress {

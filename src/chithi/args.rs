@@ -323,22 +323,29 @@ impl Args {
         !self.skip_optional_commands.contains(optional)
     }
 
-    pub fn get_source_mbuffer_args(&self) -> Vec<&str> {
+    pub fn get_pv_options(&self) -> Vec<OsString> {
+        self.pv_options
+            .split_whitespace()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_source_mbuffer_args(&self) -> Vec<OsString> {
         let mut args = vec!["-q", "-s", "128k", "-m", self.mbuffer_size.as_str()];
         if let Some(limit) = &self.source_bwlimit {
             args.push("-R");
             args.push(&limit.str);
         }
-        args
+        args.iter().map(Into::into).collect()
     }
 
-    pub fn get_target_mbuffer_args(&self) -> Vec<&str> {
+    pub fn get_target_mbuffer_args(&self) -> Vec<OsString> {
         let mut args = vec!["-q", "-s", "128k", "-m", self.mbuffer_size.as_str()];
         if let Some(limit) = &self.target_bwlimit {
             args.push("-r");
             args.push(&limit.str);
         }
-        args
+        args.iter().map(Into::into).collect()
     }
 
     pub fn get_timestamp(&self) -> String {

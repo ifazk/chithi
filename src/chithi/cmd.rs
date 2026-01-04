@@ -17,8 +17,10 @@
 use log::{debug, error};
 use std::{
     borrow::Cow,
+    ffi::{OsStr, OsString},
     fmt::Display,
     io,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     process::{Command, ExitStatus, Output, Stdio},
 };
 
@@ -299,14 +301,25 @@ impl<'args> Display for CmdTarget<'args> {
     }
 }
 
-pub struct Cmd<'args, T> {
+pub struct Cmd<'args> {
     target: &'args CmdTarget<'args>,
     sudo: bool,
     base: &'static str,
-    args: T,
+    args: Vec<OsString>,
 }
 
-impl<'args, T> Cmd<'args, T> {
+impl<'args> Clone for Cmd<'args> {
+    fn clone(&self) -> Self {
+        Self {
+            target: self.target,
+            sudo: self.sudo,
+            base: self.base,
+            args: self.args.clone(),
+        }
+    }
+}
+
+impl<'args> Cmd<'args> {
     pub fn to_local(self) -> Self {
         Self {
             target: &CmdTarget::Local,
@@ -323,31 +336,53 @@ impl<'args, T> Cmd<'args, T> {
     }
 }
 
-fn escape_str<'a>(s: &'a str) -> Cow<'a, str> {
-    if s.contains([
-        '#', '\'', '"', ' ', '\t', '\n', '\r', '|', '&', ';', '<', '>', '(', ')', '$', '*', '?',
-        '[', ']', '^', '!', '~', '%', '{', '}', //'=', ',', '-',
-    ]) {
-        let mut result = String::new();
-        result.push('\''); // start quote
-        for ch in s.chars() {
-            if ch == '\'' {
-                result.push('\''); // end quote
-                result.push_str("\\'"); // single quote that's escaped
-                result.push('\''); // restart quote
+fn escape_str<'a>(s: &'a OsStr) -> Cow<'a, OsStr> {
+    if s.as_bytes().iter().any(|c| {
+        [
+            b'#', b'\'', b'"', b' ', b'\t', b'\n', b'\r', b'|', b'&', b';', b'<', b'>', b'(', b')',
+            b'$', b'*', b'?', b'[', b']', b'^', b'!', b'~', b'%', b'{', b'}', //'=', ',', '-',
+        ]
+        .contains(c)
+    }) {
+        let mut result = OsString::new();
+        result.push("\'"); // start quote
+        for &ch in s.as_bytes() {
+            if ch == b'\'' {
+                result.push("\'"); // end quote
+                result.push("\\'"); // single quote that's escaped
+                result.push("\'"); // restart quote
             } else {
-                result.push(ch);
+                result.push(OsStr::from_bytes(&[ch]));
             }
         }
-        result.push('\''); // end quote
+        result.push("\'"); // end quote
         Cow::Owned(result)
     } else {
         Cow::Borrowed(s)
     }
 }
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Cmd<'args, T> {
-    pub fn new(target: &'args CmdTarget<'args>, sudo: bool, cmd: &'static str, args: T) -> Self {
+impl<'args> Cmd<'args> {
+    pub fn new<S: AsRef<OsStr>>(
+        target: &'args CmdTarget<'args>,
+        sudo: bool,
+        cmd: &'static str,
+        args: &[S],
+    ) -> Self {
+        Self {
+            target,
+            sudo,
+            base: cmd,
+            args: args.as_ref().iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn new_from_vec(
+        target: &'args CmdTarget<'args>,
+        sudo: bool,
+        cmd: &'static str,
+        args: Vec<OsString>,
+    ) -> Self {
         Self {
             target,
             sudo,
@@ -365,14 +400,13 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Cmd<'args, T> {
             self.target.make_cmd(self.base)
         };
         if self.target.is_remote() {
-            for &arg in self.args.as_ref() {
+            for arg in &self.args {
                 let escaped_arg = escape_str(arg);
-                let arg: &str = &escaped_arg;
-                cmd.arg(arg);
+                cmd.arg(escaped_arg);
             }
             return cmd;
         }
-        for arg in self.args.as_ref() {
+        for arg in &self.args {
             cmd.arg(arg);
         }
         cmd
@@ -400,10 +434,6 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Cmd<'args, T> {
             cmd.stderr(Stdio::null());
         };
         cmd.output()
-    }
-
-    pub fn to_mut(&self) -> Cmd<'args, Vec<&'cmd str>> {
-        self.into()
     }
 
     pub fn to_check(&self) -> Command {
@@ -438,71 +468,55 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Cmd<'args, T> {
             .stderr(Stdio::inherit());
         command.output()
     }
-}
 
-impl<'args, 'cmd> Cmd<'args, Vec<&'cmd str>> {
-    pub fn arg(&mut self, value: &'cmd str) {
-        self.args.push(value);
+    pub fn arg(&mut self, value: &str) {
+        self.args.push(value.into());
     }
-    pub fn args<T: AsRef<[&'cmd str]>>(&mut self, values: T) {
+    pub fn arg_bytes(&mut self, value: Vec<u8>) {
+        self.args.push(OsString::from_vec(value));
+    }
+    pub fn args<'cmd, T: AsRef<[&'cmd str]>>(&mut self, values: T) {
         for &value in values.as_ref() {
-            self.args.push(value);
+            self.args.push(value.into());
         }
     }
 }
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Display for Cmd<'args, T> {
+impl<'args> Display for Cmd<'args> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let sudo = if self.sudo { "sudo " } else { "" };
         write!(f, "{}{}{}", self.target, sudo, self.base)?;
         if self.target.is_remote() {
-            for &arg in self.args.as_ref() {
-                write!(f, " {}", escape_str(arg))?;
+            for arg in &self.args {
+                let arg = escape_str(arg);
+                write!(f, " {}", arg.display())?;
             }
             return Ok(());
         }
-        for &arg in self.args.as_ref() {
-            write!(f, " {}", arg)?;
+        for arg in &self.args {
+            write!(f, " {}", arg.display())?;
         }
         Ok(())
     }
 }
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> From<&Cmd<'args, T>> for Cmd<'args, Vec<&'cmd str>> {
-    fn from(
-        Cmd {
-            target,
-            sudo,
-            base,
-            args,
-        }: &Cmd<'args, T>,
-    ) -> Self {
-        Self {
-            target,
-            sudo: *sudo,
-            base,
-            args: args.as_ref().to_vec(),
-        }
-    }
-}
-
 /// Builds a vector of commands that will be passed as a script via ssh or sh
 /// -c. Used by Pipeline and Sequence.
-pub struct CmdVec<'args, T> {
+pub struct CmdVec<'args> {
     target: &'args CmdTarget<'args>,
     use_terminal_if_ssh: bool,
-    cmds: Vec<Cmd<'args, T>>,
+    cmds: Vec<Cmd<'args>>,
 }
 
-impl<'args, T> CmdVec<'args, T> {
-    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args, T>) -> Self {
+impl<'args> CmdVec<'args> {
+    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args>) -> Self {
         Self {
             target,
             use_terminal_if_ssh: false,
             cmds: vec![cmd],
         }
     }
-    pub fn add_cmd(&mut self, cmd: Cmd<'args, T>) {
+    pub fn add_cmd(&mut self, cmd: Cmd<'args>) {
         self.cmds.push(cmd);
     }
     pub fn is_remote(&self) -> bool {
@@ -512,7 +526,7 @@ impl<'args, T> CmdVec<'args, T> {
         self.use_terminal_if_ssh = value;
     }
     /// return none if input is empty, otherwise guaranteed to be some
-    pub fn from(target: &'args CmdTarget<'args>, mut from: Vec<Cmd<'args, T>>) -> Option<Self> {
+    pub fn from(target: &'args CmdTarget<'args>, mut from: Vec<Cmd<'args>>) -> Option<Self> {
         from.reverse();
         if let Some(first) = from.pop() {
             let mut pipeline = Self::new(target, first);
@@ -524,9 +538,7 @@ impl<'args, T> CmdVec<'args, T> {
             None
         }
     }
-}
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> CmdVec<'args, T> {
     fn to_cmd_with_sep(&self, sep: &str) -> Command {
         match self.target {
             CmdTarget::Local => {
@@ -539,9 +551,10 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> CmdVec<'args, T> {
                 if let Some(inner) = self.cmds.first() {
                     use std::fmt::Write;
                     let mut arg = String::new();
-                    write!(arg, "{}", Self::escape_cmd(inner)).expect("formatting should not fail");
+                    write!(arg, "{}", Self::escape_cmd(inner).display())
+                        .expect("formatting should not fail");
                     for inner in &self.cmds[1..] {
-                        write!(arg, " {} {}", sep, Self::escape_cmd(inner))
+                        write!(arg, " {} {}", sep, Self::escape_cmd(inner).display())
                             .expect("formatting should not fail");
                     }
                     cmd.arg(arg);
@@ -575,29 +588,28 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> CmdVec<'args, T> {
         }
     }
 
-    fn escape_cmd(cmd: &Cmd<'args, T>) -> String {
-        let mut result = String::new();
+    fn escape_cmd(cmd: &Cmd<'args>) -> OsString {
+        let mut result = OsString::new();
         if cmd.target.is_remote() {
             let ssh = format!("{}", cmd.target);
-            result.push_str(&ssh);
+            result.push(&ssh);
         }
         if cmd.sudo {
-            result.push_str("sudo ");
+            result.push("sudo ");
         }
-        result.push_str(cmd.base);
+        result.push(cmd.base);
         if cmd.target.is_remote() {
             // potentially needs double escape
-            result.push(' ');
-            for &arg in cmd.args.as_ref() {
-                result.push(' ');
-                let arg = escape_str(arg);
-                result.push_str(&escape_str(&arg));
+            result.push(" ");
+            for arg in &cmd.args {
+                result.push(" ");
+                result.push(escape_str(arg));
             }
             return result;
         }
-        for &arg in cmd.args.as_ref() {
-            result.push(' ');
-            result.push_str(&escape_str(arg));
+        for arg in &cmd.args {
+            result.push(" ");
+            result.push(escape_str(arg));
         }
         result
     }
@@ -621,9 +633,9 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> CmdVec<'args, T> {
             CmdTarget::Remote { .. } => {
                 write!(f, "{}", self.target)?;
                 if let Some(cmd) = self.cmds.first() {
-                    write!(f, "{}", Self::escape_cmd(cmd))?;
+                    write!(f, "{}", Self::escape_cmd(cmd).display())?;
                     for cmd in &self.cmds[1..] {
-                        write!(f, " {} {}", sep, Self::escape_cmd(cmd))?;
+                        write!(f, " {} {}", sep, Self::escape_cmd(cmd).display())?;
                     }
                 }
             }
@@ -634,24 +646,22 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> CmdVec<'args, T> {
 
 /// Thin wrapper around CmdVec to build a pipeline of commands that will be
 /// passed as a script via ssh or sh -c
-pub struct Pipeline<'args, T>(pub CmdVec<'args, T>);
+pub struct Pipeline<'args>(pub CmdVec<'args>);
 
-impl<'args, T> Pipeline<'args, T> {
-    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args, T>) -> Self {
+impl<'args> Pipeline<'args> {
+    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args>) -> Self {
         Self(CmdVec::new(target, cmd))
     }
-    pub fn from(target: &'args CmdTarget<'args>, from: Vec<Cmd<'args, T>>) -> Option<Self> {
+    pub fn from(target: &'args CmdTarget<'args>, from: Vec<Cmd<'args>>) -> Option<Self> {
         CmdVec::from(target, from).map(Self)
     }
-}
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Pipeline<'args, T> {
     pub fn to_cmd(&self) -> Command {
         self.0.to_cmd_with_sep("|")
     }
 }
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Display for Pipeline<'args, T> {
+impl<'args> Display for Pipeline<'args> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt_with_sep(f, "|")
     }
@@ -659,18 +669,16 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Display for Pipeline<'args, T> {
 
 /// Thin wrapper around CmdVec to build a pipeline of commands that will be
 /// passed as a script via ssh or sh -c
-pub struct Sequence<'args, T>(pub CmdVec<'args, T>);
+pub struct Sequence<'args>(pub CmdVec<'args>);
 
-impl<'args, T> Sequence<'args, T> {
-    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args, T>) -> Self {
+impl<'args> Sequence<'args> {
+    pub fn new(target: &'args CmdTarget<'args>, cmd: Cmd<'args>) -> Self {
         Self(CmdVec::new(target, cmd))
     }
-    pub fn from(target: &'args CmdTarget<'args>, from: Vec<Cmd<'args, T>>) -> Option<Self> {
+    pub fn from(target: &'args CmdTarget<'args>, from: Vec<Cmd<'args>>) -> Option<Self> {
         CmdVec::from(target, from).map(Self)
     }
-}
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Sequence<'args, T> {
     pub fn to_cmd(&self) -> Command {
         self.0.to_cmd_with_sep(";")
     }
@@ -687,7 +695,7 @@ impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Sequence<'args, T> {
     }
 }
 
-impl<'args, 'cmd, T: AsRef<[&'cmd str]>> Display for Sequence<'args, T> {
+impl<'args> Display for Sequence<'args> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt_with_sep(f, ";")
     }

@@ -27,8 +27,9 @@ use std::process::ExitStatus;
 use std::{
     cell::LazyCell,
     collections::{HashMap, HashSet},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     io::{self, BufRead, BufReader},
+    os::unix::ffi::OsStrExt,
     os::unix::process::CommandExt,
     process::{Command, Stdio},
 };
@@ -42,19 +43,22 @@ static RESUME_ERROR_2: LazyCell<Regex> = LazyCell::new(|| {
 });
 }
 
-struct CmdConfig<'args, 'target> {
+struct CmdConfig<'args> {
     source_is_root: bool,
     target_is_root: bool,
-    source_zfs: Cmd<'args, &'target [&'args str]>,
-    target_ps: Cmd<'args, &'target [&'args str]>,
-    target_zfs: Cmd<'args, &'target [&'args str]>,
+    source_zfs: Cmd<'args>,
+    target_ps: Cmd<'args>,
+    target_zfs: Cmd<'args>,
     optional_cmds: OptionalCommands<'args>,
     optional_features: HashSet<&'static str>,
     args: &'args Args,
     zfs_recv: Regex,
 }
 
-impl<'args, 'target> CmdConfig<'args, 'target> {
+type SystemProperties = Vec<(String, String)>;
+type UserProperties = Vec<(String, Vec<u8>)>;
+
+impl<'args> CmdConfig<'args> {
     pub fn new(
         source_cmd_target: &'args CmdTarget<'args>,
         source_is_root: bool,
@@ -63,9 +67,9 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         local_cmd_target: &'args CmdTarget<'args>,
         args: &'args Args,
     ) -> io::Result<Self> {
-        let source_zfs = Cmd::new(source_cmd_target, !source_is_root, "zfs", &[][..]);
-        let target_ps = Cmd::new(target_cmd_target, false, "ps", &["-Ao", "args="][..]);
-        let target_zfs = Cmd::new(target_cmd_target, !target_is_root, "zfs", &[][..]);
+        let source_zfs = Cmd::new_from_vec(source_cmd_target, !source_is_root, "zfs", vec![]);
+        let target_ps = Cmd::new(target_cmd_target, false, "ps", &["-Ao", "args="]);
+        let target_zfs = Cmd::new_from_vec(target_cmd_target, !target_is_root, "zfs", vec![]);
         if !args.no_command_checks {
             source_zfs.check_exists()?;
             target_ps.check_exists()?;
@@ -105,7 +109,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         no_command_checks: bool,
     ) -> io::Result<()> {
         if (source_cmd_target.is_remote() || target_cmd_target.is_remote()) && !no_command_checks {
-            let ssh_exists = Cmd::new(local_cmd_target, false, "ssh", &[][..])
+            let ssh_exists = Cmd::new_from_vec(local_cmd_target, false, "ssh", vec![])
                 .to_check()
                 .output()?
                 .status
@@ -208,7 +212,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
 
     fn target_exists(&self, fs: &Fs) -> io::Result<bool> {
         // We don't use get_zfs_value(fs, "name") here to avoid printing the error value
-        let mut target_zfs = self.target_zfs.to_mut();
+        let mut target_zfs = self.target_zfs.clone();
         target_zfs.args(["get", "-H", "name"]);
         target_zfs.arg(fs.fs.as_ref());
         debug!("checking if target filesystem {fs} exists using {target_zfs}...");
@@ -246,7 +250,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn get_child_datasets<'a>(&self, fs: &Fs<'a>) -> io::Result<Vec<Fs<'a>>> {
-        let mut source_zfs = self.source_zfs.to_mut();
+        let mut source_zfs = self.source_zfs.clone();
         const LIST_CHILD_DATASET: [&str; 6] = [
             "list",
             "-o",
@@ -293,7 +297,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         Ok(children)
     }
 
-    fn pick_zfs(&self, role: Role) -> &Cmd<'args, &'target [&'args str]> {
+    fn pick_zfs(&self, role: Role) -> &Cmd<'args> {
         match role {
             Role::Source => &self.source_zfs,
             Role::Target => &self.target_zfs,
@@ -301,17 +305,17 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn get_local_zfs_property_list(&self, fs: &Fs) -> io::Result<(Vec<String>, Vec<String>)> {
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let mut zfs = self.pick_zfs(fs.role).clone();
         zfs.args(["get", "-H", "-o", "property", "-s", "local", "all", &fs.fs]);
         debug!(
             "getting list of local properties on {} with {zfs}...",
-            zfs.target()
+            zfs.target().pretty_str()
         );
         let output = zfs.output(self.args.debug)?;
         if !output.status.success() {
             error!(
                 "failed to get list of properties on {}, command {zfs} exited with: {}",
-                zfs.target(),
+                zfs.target().pretty_str(),
                 output.status
             );
             return Err(io::Error::other("failed to get zfs property list"));
@@ -324,7 +328,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         let properties = stdout
             .split_terminator("\n")
             .map(str::trim)
-            .filter(|s| s.is_empty())
+            .filter(|s| !s.is_empty())
             .map(str::to_string)
             .partition::<Vec<_>, _>(|prop| !prop.contains(':'));
         Ok(properties)
@@ -335,7 +339,10 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         fs: &Fs,
         properties: Vec<String>,
     ) -> io::Result<Vec<(String, String)>> {
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        if properties.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut zfs = self.pick_zfs(fs.role).clone();
         let properties = properties.join(",");
         zfs.args([
             "get",
@@ -348,13 +355,13 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         ]);
         debug!(
             "getting local system properties on {} with {zfs}...",
-            zfs.target()
+            zfs.target().pretty_str()
         );
         let output = zfs.output(self.args.debug)?;
         if !output.status.success() {
             error!(
                 "failed to get system properties on {}, command {zfs} exited with: {}",
-                zfs.target(),
+                zfs.target().pretty_str(),
                 output.status
             );
             return Err(io::Error::other("failed to get zfs system properties"));
@@ -419,17 +426,17 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn get_local_zfs_user_property(&self, fs: &Fs, property: &str) -> io::Result<Vec<u8>> {
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
-        zfs.args(["get", "-H", "-o", "value", "-s", "local", &property]);
+        let mut zfs = self.pick_zfs(fs.role).clone();
+        zfs.args(["get", "-H", "-o", "value", "-s", "local", property]);
         debug!(
             "getting local user property {property} on {} with {zfs}...",
-            zfs.target()
+            zfs.target().pretty_str()
         );
         let output = zfs.output(self.args.debug)?;
         if !output.status.success() {
             error!(
-                "failed to get system properties on {}, command {zfs} exited with: {}",
-                zfs.target(),
+                "failed to get user property {property} on {}, command {zfs} exited with: {}",
+                zfs.target().pretty_str(),
                 output.status
             );
             return Err(io::Error::other("failed to get zfs system properties"));
@@ -441,11 +448,14 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         Ok(stdout)
     }
 
-    fn get_local_zfs_values(
-        &self,
-        fs: &Fs,
-    ) -> io::Result<(Vec<(String, String)>, Vec<(String, Vec<u8>)>)> {
+    fn get_local_zfs_values(&self, fs: &Fs) -> io::Result<(SystemProperties, UserProperties)>
+where {
         let (system_properties, user_properties) = self.get_local_zfs_property_list(fs)?;
+        debug!(
+            "got {} system properties and {} user properties",
+            system_properties.len(),
+            user_properties.len()
+        );
         let system_properties = self.get_local_zfs_system_properties(fs, system_properties)?;
         let user_properties = user_properties
             .into_iter()
@@ -460,7 +470,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     /// Returns ErrorKind::NotFound if dataset does not exist
     fn get_zfs_value(&self, fs: &Fs, property: &[&str]) -> io::Result<String> {
         let property_nice = property.join(" ");
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let mut zfs = self.pick_zfs(fs.role).clone();
         zfs.args(["get", "-H"]);
         zfs.args(property);
         zfs.arg(&fs.fs);
@@ -505,7 +515,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
 
     fn check_resume(cmd_target: &CmdTarget, is_root: bool) -> io::Result<bool> {
         let zpool_args = ["get", "-o", "value", "-H", "feature@extensible_dataset"];
-        let zpool = Cmd::new(cmd_target, !is_root, "zpool", zpool_args);
+        let zpool = Cmd::new(cmd_target, !is_root, "zpool", &zpool_args);
         debug!(
             "checking if zfs resume feature is available on source {} with {zpool}...",
             cmd_target.pretty_str()
@@ -544,7 +554,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             from_to.push(other);
         }
 
-        let mut source_zfs = self.source_zfs.to_mut();
+        let mut source_zfs = self.source_zfs.clone();
         source_zfs.arg("send");
         source_zfs.args(send_options);
         source_zfs.arg("-nvP");
@@ -602,26 +612,37 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         let mut recv_options = self
             .args
             .recv_options
-            .filter_allowed(&['h', 'o', 'x', 'u', 'v']);
+            .filter_allowed(&['h', 'o', 'x', 'u', 'v'])
+            .iter()
+            .map(Into::into)
+            .collect::<Vec<OsString>>();
 
         // save state on interrupted stream
         if !self.args.no_resume {
-            recv_options.push("-s");
+            recv_options.push("-s".into());
         }
         // if rollbacks aren't allowed, disable forced recv
         if !self.args.no_rollback {
-            recv_options.push("-F");
+            recv_options.push("-F".into());
         }
 
-        let mut system_properties;
-        let mut user_properties;
-        let mut recsize;
         if self.args.preserve_properties {
-            (system_properties, user_properties) = self.get_local_zfs_values(source)?;
-            for (prop, value) in &mut system_properties {
-                recv_options.push("-o");
-                *value = format!("{}={}", prop, value);
-                recv_options.push(value);
+            let (system_properties, user_properties) = self.get_local_zfs_values(source)?;
+            for (prop, value) in system_properties {
+                recv_options.push("-o".into());
+                let mut prop_value = OsString::new();
+                prop_value.push(prop);
+                prop_value.push("=");
+                prop_value.push(value);
+                recv_options.push(prop_value);
+            }
+            for (prop, value) in user_properties {
+                recv_options.push("-o".into());
+                let mut prop_value = OsString::new();
+                prop_value.push(prop);
+                prop_value.push("=");
+                prop_value.push(OsStr::from_bytes(&value));
+                recv_options.push(prop_value);
             }
         } else if self.args.preserve_recordsize
             // https://github.com/jimsalterjrs/sanoid/pull/437#issuecomment-628310658
@@ -629,10 +650,10 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             // Can you add a function to check if dataset is zvol otherwise it will error out and skip.
             && let Ok("filesystem") = self.get_zfs_value(source, &["type"]).as_deref()
         {
-            recsize = self.get_zfs_value(source, &["recordsize"])?;
-            recv_options.push("-o");
+            let mut recsize = self.get_zfs_value(source, &["recordsize"])?;
+            recv_options.push("-o".into());
             recsize = format!("recordsize={}", recsize);
-            recv_options.push(&recsize);
+            recv_options.push(recsize.into());
         }
 
         let send_cmd = {
@@ -645,13 +666,13 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             if let Some(send_to) = send_to {
                 args.push(send_to);
             }
-            Cmd::new(&CmdTarget::Local, !self.source_is_root, "zfs", args)
+            Cmd::new(&CmdTarget::Local, !self.source_is_root, "zfs", &args)
         };
         let recv_cmd = {
-            let mut args = Vec::from(["receive"]);
+            let mut args = vec!["receive".into()];
             args.extend(recv_options);
-            args.push(&target.fs);
-            Cmd::new(&CmdTarget::Local, !self.target_is_root, "zfs", args)
+            args.push(OsStr::new(target.fs.as_ref()).into());
+            Cmd::new_from_vec(&CmdTarget::Local, !self.target_is_root, "zfs", args)
         };
         let pipelines = self
             .optional_cmds
@@ -693,7 +714,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn reset_recv_state(&self, target: &Fs) -> io::Result<()> {
-        let mut target_zfs = self.target_zfs.to_mut();
+        let mut target_zfs = self.target_zfs.clone();
         target_zfs.args(["receive", "-A", &target.fs]);
         debug!("reset partial recv state of {target} using {target_zfs}...");
         match target_zfs.to_cmd().stderr(Stdio::inherit()).status() {
@@ -850,7 +871,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     }
 
     fn get_snaps(&self, fs: &Fs) -> io::Result<Vec<Snapshot<String>>> {
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let mut zfs = self.pick_zfs(fs.role).clone();
         zfs.args([
             "get",
             "-Hpd",
@@ -975,7 +996,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     // be abstracted to share, but at this point I don't see the point.
     /// Throws empty vector when bookmarks feature is not available
     fn get_bookmarks(&self, fs: &Fs) -> io::Result<Vec<Snapshot<String>>> {
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let mut zfs = self.pick_zfs(fs.role).clone();
         zfs.args([
             "get",
             "-Hpd",
@@ -1141,7 +1162,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         }
         let fs_snapshot = format!("{}@{snap_name}", fs.fs);
         if !self.args.dry_run {
-            let mut zfs = self.pick_zfs(fs.role).to_mut();
+            let mut zfs = self.pick_zfs(fs.role).clone();
             zfs.args(["snapshot", fs_snapshot.as_str()]);
             debug!("creating sync snapshot using {zfs}...");
             let status = zfs.status(self.args.debug)?;
@@ -1226,7 +1247,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     /// This fails silently in terms of the Result type, but does output an error log.
     fn zfs_hold(&self, cmd: &str, hold_name: &str, fs: &Fs, snapshot_name: &str) -> io::Result<()> {
         let fs_snapshot = format!("{}@{snapshot_name}", fs.fs);
-        let mut zfs = self.pick_zfs(fs.role).to_mut();
+        let mut zfs = self.pick_zfs(fs.role).clone();
         zfs.args([cmd, hold_name, &fs_snapshot]);
         if cmd == "hold" {
             debug!("Setting new hold on {fs} with {zfs}...")
@@ -1252,7 +1273,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
         snapshot: Snapshot<&str>,
         bookmark_name: &str,
     ) -> io::Result<ExitStatus> {
-        let mut zfs = self.source_zfs.to_mut();
+        let mut zfs = self.source_zfs.clone();
         let fs_snapshot = format!("{}@{}", fs.fs, snapshot.name);
         let fs_bookmark = format!("{}#{}", fs.fs, bookmark_name);
         zfs.args(["bookmark", &fs_snapshot, &fs_bookmark]);
@@ -1267,13 +1288,13 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     fn delete_snapshots(&self, fs: &Fs, snapshots: &[String]) -> io::Result<()> {
         let zfs = self.pick_zfs(fs.role);
         let target = zfs.target();
-        let zfs = zfs.to_mut().to_local();
+        let zfs = zfs.clone().to_local();
         const MAX_PRUNE: usize = 10usize;
         for chunk in snapshots.chunks(MAX_PRUNE) {
             let cmds = chunk
                 .iter()
                 .map(|snap| {
-                    let mut zfs = zfs.to_mut();
+                    let mut zfs = zfs.clone();
                     zfs.args(["destroy", snap]);
                     zfs
                 })
@@ -1352,7 +1373,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
     fn prune_bookmarks(&self, source: &Fs, bookmarks: &[&Snapshot<String>]) -> io::Result<()> {
         let zfs = self.pick_zfs(source.role);
         let target = zfs.target();
-        let zfs = zfs.to_mut().to_local();
+        let zfs = zfs.clone().to_local();
         const MAX_PRUNE: usize = 10usize;
         for chunk in bookmarks.chunks(MAX_PRUNE) {
             let bookmarks = chunk
@@ -1362,7 +1383,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
             let cmds = bookmarks
                 .iter()
                 .map(|bookmark| {
-                    let mut zfs = zfs.to_mut();
+                    let mut zfs = zfs.clone();
                     zfs.args(["destroy", bookmark]);
                     zfs
                 })
@@ -1635,7 +1656,7 @@ impl<'args, 'target> CmdConfig<'args, 'target> {
                     return Err(io::Error::other("not deleting root dataset"));
                 } else if self.args.force_delete {
                     // destroy target fs and do initial sync from oldest snapshot, then do -I or -i to the newest
-                    let mut target_zfs = self.target_zfs.to_mut();
+                    let mut target_zfs = self.target_zfs.clone();
                     target_zfs.args(["destroy", "-r", &target.fs]);
                     let output = target_zfs.to_cmd().output()?;
                     if !output.status.success() {

@@ -160,8 +160,8 @@ impl ConnectionType {
     }
 }
 
-struct OptionalCommand<'args, T> {
-    cmd: Cmd<'args, T>,
+struct OptionalCommand<'args> {
+    cmd: Cmd<'args>,
     insert_as: &'static str,
     skip_with: &'static str,
 }
@@ -171,17 +171,17 @@ pub struct OptionalCommands<'args> {
     source_cmd_target: &'args CmdTarget<'args>,
     target_cmd_target: &'args CmdTarget<'args>,
     local_cmd_target: &'args CmdTarget<'args>,
-    inner: HashMap<&'static str, Cmd<'args, Vec<&'args str>>>,
+    inner: HashMap<&'static str, Cmd<'args>>,
 }
 
 type Pipelines<'args, 'cmd> = (
-    Pipeline<'args, Vec<&'cmd str>>,
-    Option<Pipeline<'args, Vec<&'cmd str>>>,
-    Option<Pipeline<'args, Vec<&'cmd str>>>,
+    Pipeline<'args>,
+    Option<Pipeline<'args>>,
+    Option<Pipeline<'args>>,
 );
 
 impl<'args> OptionalCommands<'args> {
-    fn check<'cmd, T: AsRef<[&'cmd str]>>(args: &Args, cmd: &Cmd<'_, T>) -> io::Result<bool> {
+    fn check(args: &Args, cmd: &Cmd) -> io::Result<bool> {
         if args.no_command_checks {
             Ok(true)
         } else {
@@ -194,7 +194,7 @@ impl<'args> OptionalCommands<'args> {
             cmds, targets, continue_without, skip_with,
         );
     }
-    fn sync_warn<T>(cmd: &Cmd<'_, T>, continue_without: &str, skip_with: &str) {
+    fn sync_warn(cmd: &Cmd, continue_without: &str, skip_with: &str) {
         Self::not_avail_warn(
             cmd.base(),
             cmd.target().pretty_str(),
@@ -206,7 +206,7 @@ impl<'args> OptionalCommands<'args> {
         &mut self,
         args: &Args,
         continue_without: &str,
-        cmds: [OptionalCommand<'args, Vec<&'args str>>; N],
+        cmds: [OptionalCommand<'args>; N],
     ) -> io::Result<bool> {
         let mut already_checked = HashSet::new();
         for cmd in &cmds {
@@ -228,7 +228,7 @@ impl<'args> OptionalCommands<'args> {
     fn insert_all_delay_warn<const N: usize>(
         &mut self,
         args: &Args,
-        cmds: [OptionalCommand<'args, Vec<&'args str>>; N],
+        cmds: [OptionalCommand<'args>; N],
         warn: &mut Vec<(&'static str, &'args str, &'static str)>,
     ) -> io::Result<bool> {
         let mut already_checked = HashSet::new();
@@ -251,7 +251,7 @@ impl<'args> OptionalCommands<'args> {
     fn insert_first_no_warn(
         &mut self,
         args: &Args,
-        cmds: [OptionalCommand<'args, Vec<&'args str>>; 2],
+        cmds: [OptionalCommand<'args>; 2],
     ) -> io::Result<bool> {
         for cmd in cmds {
             if Self::check(args, &cmd.cmd)? {
@@ -280,43 +280,28 @@ impl<'args> OptionalCommands<'args> {
         // There's a bunch of allocated objects here, and not all of them are
         // used in every case. But it's not all that much in the grand scheme of
         // things.
-        let local_pv = Cmd::new(
-            local_cmd_target,
-            false,
-            "pv",
-            args.pv_options.split_whitespace().collect::<Vec<_>>(),
-        );
-        let source_pv = Cmd::new(
-            source_cmd_target,
-            false,
-            "pv",
-            args.pv_options.split_whitespace().collect::<Vec<_>>(),
-        );
-        let target_pv = Cmd::new(
-            target_cmd_target,
-            false,
-            "pv",
-            args.pv_options.split_whitespace().collect::<Vec<_>>(),
-        );
-        let local_source_mbuffer = Cmd::new(
+        let local_pv = Cmd::new_from_vec(local_cmd_target, false, "pv", args.get_pv_options());
+        let source_pv = Cmd::new_from_vec(source_cmd_target, false, "pv", args.get_pv_options());
+        let target_pv = Cmd::new_from_vec(target_cmd_target, false, "pv", args.get_pv_options());
+        let local_source_mbuffer = Cmd::new_from_vec(
             local_cmd_target,
             false,
             "mbuffer",
             args.get_source_mbuffer_args(),
         );
-        let local_target_mbuffer = Cmd::new(
+        let local_target_mbuffer = Cmd::new_from_vec(
             local_cmd_target,
             false,
             "mbuffer",
             args.get_target_mbuffer_args(),
         );
-        let source_mbuffer = Cmd::new(
+        let source_mbuffer = Cmd::new_from_vec(
             source_cmd_target,
             false,
             "mbuffer",
             args.get_source_mbuffer_args(),
         );
-        let target_mbuffer = Cmd::new(
+        let target_mbuffer = Cmd::new_from_vec(
             target_cmd_target,
             false,
             "mbuffer",
@@ -327,29 +312,29 @@ impl<'args> OptionalCommands<'args> {
             .compress
             .to_cmd()
             .map(|compress| {
-                let local_compress = Cmd::new(
+                let local_compress = Cmd::new_from_vec(
                     local_cmd_target,
                     false,
                     compress.base,
-                    compress.args.to_vec(),
+                    compress.get_compress_args(),
                 );
-                let local_decompress = Cmd::new(
+                let local_decompress = Cmd::new_from_vec(
                     local_cmd_target,
                     false,
                     compress.decompress,
-                    compress.decompress_args.to_vec(),
+                    compress.get_decompress_args(),
                 );
-                let source_compress = Cmd::new(
+                let source_compress = Cmd::new_from_vec(
                     source_cmd_target,
                     false,
                     compress.base,
-                    compress.args.to_vec(),
+                    compress.get_compress_args(),
                 );
-                let target_decompress = Cmd::new(
+                let target_decompress = Cmd::new_from_vec(
                     target_cmd_target,
                     false,
                     compress.decompress,
-                    compress.decompress_args.to_vec(),
+                    compress.get_decompress_args(),
                 );
                 (
                     Some(local_compress),
@@ -706,15 +691,11 @@ impl<'args> OptionalCommands<'args> {
         Ok(res)
     }
 
-    fn get_pv<'cmd>(
-        &self,
-        pv_key: &str,
-        pv_size_str: &'cmd str,
-    ) -> Option<Cmd<'args, Vec<&'cmd str>>>
+    fn get_pv<'cmd>(&self, pv_key: &str, pv_size_str: &'cmd str) -> Option<Cmd<'args>>
     where
         'args: 'cmd,
     {
-        self.inner.get(pv_key).map(Cmd::to_mut).map(|mut pv| {
+        self.inner.get(pv_key).cloned().map(|mut pv| {
             if pv_size_str != "0" {
                 pv.arg("-s");
                 pv.arg(pv_size_str);
@@ -726,8 +707,8 @@ impl<'args> OptionalCommands<'args> {
     // We build one or two shell pipes, depending on whether the hosts are the same or not
     pub fn build_sync_pipelines<'cmd>(
         &self,
-        send_cmd: Cmd<'args, Vec<&'cmd str>>,
-        recv_cmd: Cmd<'args, Vec<&'cmd str>>,
+        send_cmd: Cmd<'args>,
+        recv_cmd: Cmd<'args>,
         pv_size_str: &'cmd str,
     ) -> Pipelines<'args, 'cmd>
     where
@@ -736,14 +717,14 @@ impl<'args> OptionalCommands<'args> {
         let source_pv = self.get_pv("sourcepv", pv_size_str);
         let target_pv = self.get_pv("targetpv", pv_size_str);
         let local_pv = self.get_pv("localpv", pv_size_str);
-        let source_compress = self.inner.get("sourcecompress").map(Cmd::to_mut);
-        let target_compress = self.inner.get("targetcompress").map(Cmd::to_mut);
-        let local_compress = self.inner.get("localcompress").map(Cmd::to_mut);
-        let local_decompress = self.inner.get("localdecompress").map(Cmd::to_mut);
-        let source_mbuffer = self.inner.get("sourcembuffer").map(Cmd::to_mut);
-        let target_mbuffer = self.inner.get("targetmbuffer").map(Cmd::to_mut);
-        let local_source_mbuffer = self.inner.get("localsourcembuffer").map(Cmd::to_mut);
-        let local_target_mbuffer = self.inner.get("localtargetmbuffer").map(Cmd::to_mut);
+        let source_compress = self.inner.get("sourcecompress").cloned();
+        let target_compress = self.inner.get("targetcompress").cloned();
+        let local_compress = self.inner.get("localcompress").cloned();
+        let local_decompress = self.inner.get("localdecompress").cloned();
+        let source_mbuffer = self.inner.get("sourcembuffer").cloned();
+        let target_mbuffer = self.inner.get("targetmbuffer").cloned();
+        let local_source_mbuffer = self.inner.get("localsourcembuffer").cloned();
+        let local_target_mbuffer = self.inner.get("localtargetmbuffer").cloned();
 
         match &self.conn_type {
             ConnectionType::Local => {
