@@ -19,7 +19,7 @@ build_linux: check check_linux
 	file target/x86_64-unknown-linux-musl/release/chithi
 	ls -lah target/x86_64-unknown-linux-musl/release/chithi
 
-build_freebsd: check check_freebsd
+build_freebsd: check_freebsd
 	cargo build --release --target x86_64-unknown-freebsd
 	file target/x86_64-unknown-freebsd/release/chithi
 	ls -lah target/x86_64-unknown-freebsd/release/chithi
