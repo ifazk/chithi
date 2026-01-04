@@ -453,7 +453,7 @@ impl<'args> Cmd<'args> {
         Ok(())
     }
 
-    /// Run command printing and catputuring output (stdout and stderr)
+    /// Run command printing and capturing output (stdout and stderr)
     pub fn capture(&self) -> io::Result<Output> {
         let mut command = self.to_cmd();
         sys::capture(&mut command)
@@ -547,7 +547,7 @@ impl<'args> CmdVec<'args> {
                     return self.cmds[0].to_cmd();
                 }
                 let mut cmd = Command::new("sh");
-                cmd.args(["-c", "--"]);
+                cmd.arg("-c");
                 if let Some(inner) = self.cmds.first() {
                     use std::fmt::Write;
                     let mut arg = String::new();

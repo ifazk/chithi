@@ -152,8 +152,12 @@ pub fn capture(command: &mut process::Command) -> io::Result<process::Output> {
                     if poll_readable(pollfd.revents) {
                         match child_out.read(&mut readbuf) {
                             Ok(n) => {
-                                stdout.extend_from_slice(&readbuf[..n]);
-                                io::stdout().write_all(&readbuf[..n])?;
+                                if n == 0 {
+                                    remove_buffer.push(pollfd_idx);
+                                } else {
+                                    stdout.extend_from_slice(&readbuf[..n]);
+                                    io::stdout().write_all(&readbuf[..n])?;
+                                }
                             }
                             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                             Err(e) => return Err(e),
@@ -166,8 +170,12 @@ pub fn capture(command: &mut process::Command) -> io::Result<process::Output> {
                     if poll_readable(pollfd.revents) {
                         match child_err.read(&mut readbuf) {
                             Ok(n) => {
-                                stderr.extend_from_slice(&readbuf[..n]);
-                                io::stderr().write_all(&readbuf[..n])?;
+                                if n == 0 {
+                                    remove_buffer.push(pollfd_idx);
+                                } else {
+                                    stderr.extend_from_slice(&readbuf[..n]);
+                                    io::stderr().write_all(&readbuf[..n])?;
+                                }
                             }
                             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                             Err(e) => return Err(e),
