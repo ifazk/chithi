@@ -2,6 +2,11 @@
 name = "chithi"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
+description = "OpenZFS replication tools"
+repository = "https://github.com/ifazk/chithi"
+keywords = ["zfs", "replication"]
+categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
 chrono = { version = "0.4.42", features = ["now"] }

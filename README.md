@@ -2,13 +2,26 @@
 OpenZFS replication tool.
 
 # Port of syncoid to Rust
-Chithi is a port of [syncoid](https://github.com/jimsalterjrs/sanoid) to Rust.
+Chithi is a port of [syncoid](https://github.com/jimsalterjrs/sanoid) version
+2.3 to Rust.
 
-The plan right now is to be as compatible as possible with syncoid, but I will
-port features in a way that makes more sense in Rust. The functionality should
-all be there though, you should be able to to do the same things but the command
-line interface might be a little different, and some more escaping might be
-needed.
+The `chithi sync` command has most features that are available syncoid, but the
+command line interface is a little different. The feature differences are listed
+below.
+
+# Plugins
+Chithi supports plugins via external commands. Running `chithi <subcommand>`
+will look for a command named `chithi-<subcommand>` in your path and run try to
+run that command, forwarding any arguments. The plugins `chithi-run`,
+`chithi-status`, `chithi-cron`, and `chithi-sysd` are under development, and
+thus you are discouraged from developing plugins with those names.
+
+# Documentation
+The documentation for using `chithi` for different use cases is currently under
+development, but running `chithi help sync` is a good place to start if you are
+looking for details.
+
+# Chithi vs Syncoid 2.3
 
 ## Chithi features not found in syncoid 2.3
 1. Cli `--{source,target}-host`. Can optionally set the source and target
@@ -20,7 +33,8 @@ needed.
 4. Cli `--prune-formats`. Can use "--prune-format chithi --prune-format syncoid"
    to prune both formats. Defaults to "--prune-format chithi" if not set.
 5. Cli `--dry-run`.
-6. Plugins.
+6. Plugins. You can run commands in your path of the form `chithi-<command>` by
+   running `chithi <command>`.
 7. Cli `--use-bookmarks`. This option will agressively fetch both snapshots and
    bookmarks for computing incremental sends. Useful for infrequent replication
    with aggressive snapshot pruning at source.
@@ -63,3 +77,6 @@ I am not accepting PRs or contributions to the project. The project isn't ready
 for contributions. The code here is GPLv3 through, so you may fork the project
 under that license if you'd like to to take the project in a different
 direction, or if the updates here are too slow.
+
+# Name Meaning
+Chithi (চিঠি) is the Bangla word for letter or mail.
