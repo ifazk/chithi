@@ -1,5 +1,5 @@
-//  Chobi and Chithi: Managment tools for ZFS snapshot, send, and recv
-//  Copyright (C) 2025  Ifaz Kabir
+//  Chithi: OpenZFS replication tools
+//  Copyright (C) 2025-2026  Ifaz Kabir
 
 //  This program is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -14,9 +14,9 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chithi::compress::Compress;
-use crate::chithi::send_recv_opts::{OptionsLine, Opts};
-use crate::chithi::zfs;
+use crate::compress::Compress;
+use crate::send_recv_opts::{OptionsLine, Opts};
+use crate::zfs;
 use bw::Bytes;
 use chrono::format::StrftimeItems;
 use clap::{Parser, Subcommand};

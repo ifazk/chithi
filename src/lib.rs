@@ -1,5 +1,5 @@
-//  Chobi and Chithi: Managment tools for ZFS snapshot, send, and recv
-//  Copyright (C) 2025  Ifaz Kabir
+//  Chithi: OpenZFS replication tools
+//  Copyright (C) 2025-2026  Ifaz Kabir
 
 //  This program is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -14,14 +14,23 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::process::exit;
+mod args;
+mod cmd;
+pub mod compress;
+mod fs;
+pub mod send_recv_opts;
+pub mod sync_pipelines;
+pub mod sys;
+pub mod util;
+pub mod zfs;
 
-pub mod chithi;
-
-pub fn wip() {
-    println!("This binary is not implemented yet");
-    exit(1);
-}
+pub use args::{Args, Cli, Commands};
+pub use cmd::Cmd;
+pub use cmd::CmdTarget;
+pub use cmd::CmdVec;
+pub use cmd::Pipeline;
+pub use cmd::Sequence;
+pub use fs::{Fs, Role, get_is_roots};
 
 /// Automatically reaps the child's pid when it goes out of scope
 pub struct AutoTerminate {

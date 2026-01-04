@@ -1,5 +1,5 @@
-//  Chobi and Chithi: Managment tools for ZFS snapshot, send, and recv
-//  Copyright (C) 2025  Ifaz Kabir
+//  Chithi: OpenZFS replication tools
+//  Copyright (C) 2025-2026  Ifaz Kabir
 
 //  This program is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -14,12 +14,12 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use chobi::AutoTerminate;
-use chobi::chithi::sync_pipelines::OptionalCommands;
-use chobi::chithi::sys::hostname;
-use chobi::chithi::util::ReadableBytes;
-use chobi::chithi::zfs::{Creation, IntermediateSource, Snapshot, SnapshotInfo};
-use chobi::chithi::{Args, Cli, Cmd, CmdTarget, Commands, Fs, Role, Sequence, get_is_roots};
+use chithi::AutoTerminate;
+use chithi::sync_pipelines::OptionalCommands;
+use chithi::sys::hostname;
+use chithi::util::ReadableBytes;
+use chithi::zfs::{Creation, IntermediateSource, Snapshot, SnapshotInfo};
+use chithi::{Args, Cli, Cmd, CmdTarget, Commands, Fs, Role, Sequence, get_is_roots};
 use clap::Parser;
 use log::{debug, error, info, trace, warn};
 use regex_lite::Regex;
