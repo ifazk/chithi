@@ -797,7 +797,7 @@ where {
         let send_to = Some(send_to.as_str());
         let pv_size = self.get_send_size(send_from, send_to)?;
         info!(
-            "Sending incremental intermediate snapshot {} .. {}@{to_snapshot} to new target filesystem {target} (~ {})",
+            "Sending incremental intermediate snapshot {} .. {}@{to_snapshot} to target filesystem {target} (~ {})",
             from_source,
             source.fs,
             ReadableBytes::from(pv_size)
@@ -817,7 +817,7 @@ where {
         let send_to = Some(send_to.as_str());
         let pv_size = self.get_send_size(send_from, send_to)?;
         info!(
-            "Sending full incremental snapshot {from_snapshot} .. {}@{to_snapshot} to new target filesystem {target} (~ {})",
+            "Sending full incremental snapshot {from_snapshot} .. {}@{to_snapshot} to target filesystem {target} (~ {})",
             source.fs,
             ReadableBytes::from(pv_size)
         );
