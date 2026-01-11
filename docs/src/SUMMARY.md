@@ -12,7 +12,8 @@
 
 # Task Runner
 
-- [Using with timeout command](./timeout.md)
+- [`run` command](./run/runner.md)
+- [Using with timeout command](./run/timeout.md)
 
 <!-- # Status Checks -->
 
