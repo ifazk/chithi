@@ -19,6 +19,7 @@ build_linux: check check_linux
 	cargo build --quiet --release --target x86_64-unknown-linux-musl
 	file target/x86_64-unknown-linux-musl/release/chithi
 	ls -lah target/x86_64-unknown-linux-musl/release/chithi
+	ls -lah target/x86_64-unknown-linux-musl/release/chithi-run
 	cp -l target/x86_64-unknown-linux-musl/release/chithi target/chithi-base-x86_64-unknown-linux-musl
 
 build_freebsd: check_freebsd
@@ -26,6 +27,7 @@ build_freebsd: check_freebsd
 	cargo build --quiet --release --target x86_64-unknown-freebsd
 	file target/x86_64-unknown-freebsd/release/chithi
 	ls -lah target/x86_64-unknown-freebsd/release/chithi
+	ls -lah target/x86_64-unknown-freebsd/release/chithi-run
 	cp -l target/x86_64-unknown-freebsd/release/chithi target/chithi-base-x86_64-unknown-freebsd
 
 TEST_ARGS=

@@ -16,6 +16,27 @@ run that command, forwarding any arguments. The plugins `chithi-run`,
 `chithi-status`, `chithi-cron`, and `chithi-sysd` are under development, and
 thus you are discouraged from developing plugins with those names.
 
+## Runner Plugin
+Chithi sync can get very verbose and error prone when manually running the same
+sync task repeatedly. For these situations, we provide the runner plugin, which
+allows running sync tasks by name.
+
+It is configured by 
+
+```toml
+command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]
+
+[run]
+max-initial-delay-secs = 10
+
+[[task.backups.job]]
+source= "tank/backups"
+target= "onsite/backups"
+```
+
+Then the `backups` task can be run using `chithi run backups`, no need to
+remember the long sync command.
+
 # Documentation
 The documentation for using `chithi` for different use cases is currently under
 development, but running `chithi help sync` is a good place to start if you are

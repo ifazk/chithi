@@ -14,7 +14,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-mod args;
+pub mod args;
 mod cmd;
 pub mod compress;
 mod fs;
@@ -23,6 +23,11 @@ pub mod sync_pipelines;
 pub mod sys;
 pub mod util;
 pub mod zfs;
+
+#[cfg(feature = "run")]
+pub mod run;
+#[cfg(feature = "spec")]
+pub mod spec;
 
 pub use args::{Args, Cli, Commands};
 pub use cmd::Cmd;

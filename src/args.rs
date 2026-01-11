@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 
 mod bw;
+pub mod run;
 
 #[derive(Debug, Parser)]
 #[command(name = "chithi")]

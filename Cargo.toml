@@ -16,6 +16,20 @@ libc = "0.2.175"
 log = "0.4.27"
 rand = { version = "0.9.2", features = ["small_rng"] }
 regex-lite = "0.1.8"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = { version = "0.9.10", features = ["std", "serde"], optional = true }
+
+[features]
+default = []
+base = []
+spec = ["dep:toml"]
+run = ["spec"]
+run-bin = ["run"]
+run-bundle = ["run"]
+
+[[bin]]
+name = "chithi-run"
+required-features = ["run-bin"]
 
 [profile.release]
 strip = true

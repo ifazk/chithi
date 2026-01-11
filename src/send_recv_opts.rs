@@ -46,14 +46,14 @@ impl Opts<Vec<OptionsLine<String>>> {
                     } else {
                         options.push(OptionsLine {
                             option: c,
-                            line: format!("-{c}"),
+                            line: vec![format!("-{c}")],
                         });
                     }
                 }
             } else {
                 let option = last_option
                     .expect("parsing_options should only be false when last_option contains value");
-                let line = format!("-{option} {s}");
+                let line = vec![format!("-{option}"), format!("{s}")];
                 options.push(OptionsLine { option, line });
                 parsing_options = true;
                 last_option = None;
@@ -70,11 +70,12 @@ impl Opts<Vec<OptionsLine<String>>> {
             .iter()
             .filter_map(|o| {
                 if allowed.contains(&o.option) {
-                    Some(o.line.as_str())
+                    Some(o.line.iter().map(String::as_str))
                 } else {
                     None
                 }
             })
+            .flatten()
             .collect()
     }
 }
@@ -87,9 +88,12 @@ impl Display for Opts<Vec<OptionsLine<String>>> {
                 write!(f, " ")?;
                 after_opt = false;
             }
-            let line = &opt.line.as_str()[1..];
-            write!(f, "{}", line)?;
-            if ['o', 'x', 'X'].contains(&opt.option) {
+            let mut line = opt.line.iter();
+            if let Some(opt) = line.next() {
+                write!(f, "{}", opt)?;
+            };
+            for param in line {
+                write!(f, " {}", param)?;
                 after_opt = true;
             }
         }
@@ -100,5 +104,5 @@ impl Display for Opts<Vec<OptionsLine<String>>> {
 #[derive(Debug, Clone)]
 pub struct OptionsLine<T> {
     pub option: char,
-    pub line: T,
+    pub line: Vec<T>,
 }

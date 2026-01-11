@@ -36,12 +36,6 @@ use std::{
 
 const DOES_NOT_EXIST: &str = "dataset does not exist";
 const RESUME_ERROR_1: &str = "used in the initial send no longer exists";
-thread_local! {
-static RESUME_ERROR_2: LazyCell<Regex> = LazyCell::new(|| {
-    Regex::new(r"incremental source [0-9xa-f]+ no longer exists")
-        .expect("regex pattern should be correct")
-});
-}
 
 struct CmdConfig<'args> {
     source_is_root: bool,
@@ -53,6 +47,7 @@ struct CmdConfig<'args> {
     optional_features: HashSet<&'static str>,
     args: &'args Args,
     zfs_recv: Regex,
+    resume_error_2: LazyCell<Regex>,
 }
 
 type SystemProperties = Vec<(String, String)>;
@@ -99,6 +94,10 @@ impl<'args> CmdConfig<'args> {
             optional_cmds,
             args,
             zfs_recv,
+            resume_error_2: LazyCell::new(|| {
+                Regex::new(r"incremental source [0-9xa-f]+ no longer exists")
+                    .expect("regex pattern should be correct")
+            }),
         })
     }
 
@@ -1489,8 +1488,7 @@ where {
             if let Err(resume_err) = &resume_res
                 && resume_err.kind() == io::ErrorKind::Other
                 && let err_str = resume_err.to_string()
-                && (err_str.contains(RESUME_ERROR_1)
-                    || RESUME_ERROR_2.with(|regex| regex.is_match(&err_str)))
+                && (err_str.contains(RESUME_ERROR_1) || self.resume_error_2.is_match(&err_str))
             {
                 // reset and continue normal resume
                 warn!(
@@ -1887,6 +1885,18 @@ fn sync(args: Args) -> io::Result<()> {
     debug!("source_is_root:{source_is_root}, target_is_root:{target_is_root}");
 
     trace!("built fs");
+
+    // check if any of the fs start with a leading / (common mistakes, even for non beginners)
+    // Much nicer to fail here than fail with an invalid name
+    if source.fs.starts_with('/') {
+        error!("source dataset cannot start with a leading /");
+    } else if source.fs.is_empty() {
+        error!("source dataset cannot be empty");
+    } else if target.fs.starts_with('/') {
+        error!("target dataset cannot start with a leading /");
+    } else if target.fs.is_empty() {
+        error!("target dataset cannot be empty");
+    }
 
     // Build command targets
     let mut source_cmd_target = CmdTarget::new(
