@@ -16,7 +16,7 @@
 
 // TODO decide if we want to offer a different cli for send/recv options
 
-use std::fmt::Display;
+use std::{fmt::Display, mem};
 
 #[derive(Debug, Clone, Default)]
 pub struct Opts<T> {
@@ -46,15 +46,17 @@ impl Opts<Vec<OptionsLine<String>>> {
                     } else {
                         options.push(OptionsLine {
                             option: c,
-                            line: vec![format!("-{c}")],
+                            param: None,
                         });
                     }
                 }
             } else {
                 let option = last_option
                     .expect("parsing_options should only be false when last_option contains value");
-                let line = vec![format!("-{option}"), format!("{s}")];
-                options.push(OptionsLine { option, line });
+                options.push(OptionsLine {
+                    option,
+                    param: Some(s.to_string()),
+                });
                 parsing_options = true;
                 last_option = None;
             }
@@ -65,36 +67,44 @@ impl Opts<Vec<OptionsLine<String>>> {
         Ok(Self { options })
     }
 
-    pub fn filter_allowed(&self, allowed: &'static [char]) -> Vec<&str> {
-        self.options
-            .iter()
-            .filter_map(|o| {
-                if allowed.contains(&o.option) {
-                    Some(o.line.iter().map(String::as_str))
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect()
+    pub fn filter_allowed(&self, allowed: &'static [char]) -> Vec<String> {
+        let filtered = self.options.iter().filter(|o| allowed.contains(&o.option));
+        let mut dashed = String::from("-");
+        let mut res = Vec::new();
+        for opt in filtered {
+            dashed.push(opt.option);
+            if let Some(param) = opt.param.clone() {
+                let mut swap_dashed = String::from("-");
+                mem::swap(&mut dashed, &mut swap_dashed);
+                res.push(swap_dashed);
+                res.push(param);
+            }
+        }
+        if dashed.len() > 1 {
+            res.push(dashed)
+        };
+        res
     }
 }
 
 impl Display for Opts<Vec<OptionsLine<String>>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut after_opt = false;
+        let mut dash_printed = false;
+        let mut after_param = false;
         for opt in &self.options {
-            if after_opt {
+            if after_param {
                 write!(f, " ")?;
-                after_opt = false;
+                after_param = false;
             }
-            let mut line = opt.line.iter();
-            if let Some(opt) = line.next() {
-                write!(f, "{}", opt)?;
-            };
-            for param in line {
+            if !dash_printed {
+                write!(f, "-")?;
+                dash_printed = true;
+            }
+            write!(f, "{}", opt.option)?;
+            if let Some(param) = opt.param.as_ref() {
                 write!(f, " {}", param)?;
-                after_opt = true;
+                dash_printed = false;
+                after_param = true;
             }
         }
         Ok(())
@@ -104,5 +114,5 @@ impl Display for Opts<Vec<OptionsLine<String>>> {
 #[derive(Debug, Clone)]
 pub struct OptionsLine<T> {
     pub option: char,
-    pub line: Vec<T>,
+    pub param: Option<T>,
 }

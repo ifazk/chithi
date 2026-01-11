@@ -555,7 +555,7 @@ where {
 
         let mut source_zfs = self.source_zfs.clone();
         source_zfs.arg("send");
-        source_zfs.args(send_options);
+        source_zfs.args_string(&send_options);
         source_zfs.arg("-nvP");
         source_zfs.args(&from_to);
         debug!("getting estimated transfer size from source using {source_zfs}...");
@@ -656,16 +656,17 @@ where {
         }
 
         let send_cmd = {
-            let mut args = Vec::from(["send"]);
-            args.extend(send_options);
+            let mut cmd = Cmd::new_from_vec(&CmdTarget::Local, !self.source_is_root, "zfs", vec![]);
+            cmd.arg("send");
+            cmd.args_string(send_options);
             if let Some(flag) = send_from.0 {
-                args.push(flag);
+                cmd.arg(flag);
             }
-            args.push(send_from.1);
+            cmd.arg(send_from.1);
             if let Some(send_to) = send_to {
-                args.push(send_to);
+                cmd.arg(send_to);
             }
-            Cmd::new(&CmdTarget::Local, !self.source_is_root, "zfs", &args)
+            cmd
         };
         let recv_cmd = {
             let mut args = vec!["receive".into()];

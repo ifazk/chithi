@@ -480,6 +480,11 @@ impl<'args> Cmd<'args> {
             self.args.push(value.into());
         }
     }
+    pub fn args_string<T: AsRef<[String]>>(&mut self, values: T) {
+        for value in values.as_ref() {
+            self.args.push(value.into());
+        }
+    }
 }
 
 impl<'args> Display for Cmd<'args> {

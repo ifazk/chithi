@@ -16,19 +16,19 @@ build: build_linux build_freebsd
 
 build_linux: check check_linux
 	rm -rf target/chithi-base-x86_64-unknown-linux-musl
-	cargo build --quiet --release --target x86_64-unknown-linux-musl
-	file target/x86_64-unknown-linux-musl/release/chithi
-	ls -lah target/x86_64-unknown-linux-musl/release/chithi
-	ls -lah target/x86_64-unknown-linux-musl/release/chithi-run
+	cargo build --quiet --release --target x86_64-unknown-linux-musl --features base
 	cp -l target/x86_64-unknown-linux-musl/release/chithi target/chithi-base-x86_64-unknown-linux-musl
+	rm -rf target/chithi-run-x86_64-unknown-linux-musl
+	cargo build --quiet --release --target x86_64-unknown-linux-musl --features run-bin
+	cp -l target/x86_64-unknown-linux-musl/release/chithi-run target/chithi-run-x86_64-unknown-linux-musl
 
 build_freebsd: check_freebsd
 	rm -rf target/chithi-base-x86_64-unknown-freebsd
-	cargo build --quiet --release --target x86_64-unknown-freebsd
-	file target/x86_64-unknown-freebsd/release/chithi
-	ls -lah target/x86_64-unknown-freebsd/release/chithi
-	ls -lah target/x86_64-unknown-freebsd/release/chithi-run
+	cargo build --quiet --release --target x86_64-unknown-freebsd --features base
 	cp -l target/x86_64-unknown-freebsd/release/chithi target/chithi-base-x86_64-unknown-freebsd
+	rm -rf target/chithi-run-x86_64-unknown-freebsd
+	cargo build --quiet --release --target x86_64-unknown-freebsd --features run-bin
+	cp -l target/x86_64-unknown-freebsd/release/chithi-run target/chithi-run-x86_64-unknown-freebsd
 
 TEST_ARGS=
 
