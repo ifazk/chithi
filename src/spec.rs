@@ -1,8 +1,10 @@
-use log::error;
+use log::{error, info};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io;
 use std::process::{Command, ExitStatus, Stdio};
+use std::thread::sleep;
+use std::time::Duration;
 
 #[derive(Deserialize)]
 pub struct Job {
@@ -38,6 +40,7 @@ pub struct RunConfig {
 }
 
 impl RunConfig {
+    #[cfg(feature = "run")]
     pub fn restart_delay(&self, run_idx: usize) -> Option<u16> {
         let restart_delay = self
             .restart_delay_secs
@@ -48,6 +51,61 @@ impl RunConfig {
             (Some(restart), Some(jitter)) => Some(restart + jitter),
             (x, y) => x.or(y),
         }
+    }
+    #[cfg(feature = "run")]
+    pub fn inital_delay(&self, loc: Loc) {
+        // Initial delay
+        if let Some(delay) = self.max_inital_delay_secs {
+            let secs = rand::random_range(0..delay);
+            if secs > 0 {
+                info!("delaying {loc} by {}", Seconds(secs));
+                sleep(Duration::from_secs(secs as u64));
+            }
+        };
+    }
+}
+
+/// Simple human readable time
+pub struct Seconds(pub u16);
+
+impl std::fmt::Display for Seconds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut seconds = self.0;
+        let hours = seconds / 3600;
+        seconds = seconds % 3600;
+        let minutes = seconds / 60;
+        seconds = seconds % 60;
+        if hours > 0 {
+            if hours == 1 {
+                write!(f, "{hours} hour")?
+            } else {
+                write!(f, "{hours} hours")?
+            }
+            if minutes > 0 || seconds > 0 {
+                write!(f, " ")?
+            }
+        };
+        if minutes > 0 {
+            if minutes == 1 {
+                write!(f, "{minutes} minute")?
+            } else {
+                write!(f, "{minutes} minutes")?
+            }
+            if seconds > 0 {
+                write!(f, " ")?
+            }
+        };
+        if seconds > 0 {
+            if seconds == 1 {
+                write!(f, "{seconds} second")?
+            } else {
+                write!(f, "{seconds} seconds")?
+            }
+        }
+        if hours == 0 && minutes == 0 && seconds == 0 {
+            write!(f, "0 seconds")?
+        }
+        Ok(())
     }
 }
 
@@ -90,10 +148,57 @@ pub struct NormalizedTask {
     pub jobs: Vec<NormalizedJob>,
 }
 
+impl NormalizedTask {
+    pub fn get_enabled_jobs<'proj>(
+        &'proj self,
+        task_loc: Loc<'proj, 'proj>,
+    ) -> impl Iterator<Item = Loc<'proj, 'proj>> {
+        self.jobs.iter().enumerate().filter_map(move |(idx, job)| {
+            let job_loc = task_loc.extend_job(idx);
+            if job.disabled {
+                info!("{job_loc} is disabled");
+                None
+            } else {
+                Some(job_loc)
+            }
+        })
+    }
+}
+
 pub struct NormalizedProject {
+    pub name: String,
     pub disabled: bool,
     pub run_config: RunConfig,
     pub tasks: HashMap<String, NormalizedTask>,
+}
+
+impl NormalizedProject {
+    pub fn get_loc<'proj, 'a>(&'proj self) -> Loc<'a, 'proj> {
+        Loc::new(self.name.as_str())
+    }
+
+    pub fn get_enabled_tasks_or_jobs<'proj>(
+        &'proj self,
+    ) -> impl Iterator<Item = Loc<'proj, 'proj>> {
+        let proj_loc = self.get_loc();
+        self.tasks
+            .iter()
+            .filter_map(move |(task_name, task)| {
+                if task.disabled {
+                    info!("{} is disabled", self.get_loc().extend_task(task_name));
+                    None
+                } else if task.parallel {
+                    Some(
+                        Box::new(task.get_enabled_jobs(proj_loc.extend_task(task_name)))
+                            as Box<dyn Iterator<Item = Loc<'proj, 'proj>>>,
+                    )
+                } else {
+                    Some(Box::new(std::iter::once(proj_loc.extend_task(task_name)))
+                        as Box<dyn Iterator<Item = Loc<'proj, 'proj>>>)
+                }
+            })
+            .flatten()
+    }
 }
 
 impl Project {
@@ -130,6 +235,7 @@ impl Project {
                         }))
         }).collect();
         tasks.map(|tasks| NormalizedProject {
+            name: proj_name.to_string(),
             disabled: self.disabled,
             run_config: self.run.unwrap_or_default(),
             tasks,
@@ -171,28 +277,29 @@ impl Project {
     }
 }
 
-struct Loc<'a, 'b> {
-    task_name: Option<&'a str>,
-    job_num: Option<usize>,
-    proj_name: &'b str,
+#[derive(Clone, Copy)]
+pub struct Loc<'a, 'b> {
+    pub task_name: Option<&'a str>,
+    pub job_num: Option<usize>,
+    pub proj_name: &'b str,
 }
 
 impl<'a, 'b> Loc<'a, 'b> {
-    fn new(proj_name: &'b str) -> Self {
+    pub fn new(proj_name: &'b str) -> Self {
         Self {
             task_name: None,
             job_num: None,
             proj_name,
         }
     }
-    fn extend_task(&self, task_name: &'a str) -> Self {
+    pub fn extend_task(&self, task_name: &'a str) -> Self {
         Self {
             task_name: Some(task_name),
             job_num: self.job_num,
             proj_name: self.proj_name,
         }
     }
-    fn extend_job(&self, job_num: usize) -> Self {
+    pub fn extend_job(&self, job_num: usize) -> Self {
         Self {
             task_name: self.task_name,
             job_num: Some(job_num),
@@ -207,8 +314,11 @@ impl<'a, 'b> std::fmt::Display for Loc<'a, 'b> {
             write!(f, "task {task} ")?
         };
         if let Some(job_num) = self.job_num {
-            write!(f, "job {job_num} in ")?
+            write!(f, "job {job_num} ")?
         };
+        if self.task_name.is_some() || self.job_num.is_some() {
+            write!(f, "in ")?
+        }
         write!(f, "project {}", self.proj_name)
     }
 }

@@ -9,6 +9,12 @@ Note: We are not at a 1.0.0 release. Therefore we do not have a fixed public API
 at this moment. Do not rely on this crate as a library as there may be breaking
 changes between minor versions.
 
+## [Unreleased]
+
+### Added
+
+- `chithi-run` task runner binary
+
 ## [0.1.1] - 2025-01-11
 
 ### Added

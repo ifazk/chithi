@@ -13,6 +13,7 @@
 # Task Runner
 
 - [`run` command](./run/runner.md)
+- [PATH variable](./run/path.md)
 - [Using with timeout command](./run/timeout.md)
 
 <!-- # Status Checks -->
