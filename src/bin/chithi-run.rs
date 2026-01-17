@@ -1,3 +1,19 @@
+//  Chithi: OpenZFS replication tools
+//  Copyright (C) 2025-2026  Ifaz Kabir
+
+//  This program is free software: you can redistribute it and/or modify
+//  it under the terms of the GNU General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU General Public License for more details.
+
+//  You should have received a copy of the GNU General Public License
+//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use chithi::args::run::RunArgs;
 use chithi::run;
 use clap::Parser;
@@ -5,11 +21,6 @@ use std::io;
 
 fn main() -> io::Result<()> {
     let args = RunArgs::parse();
-
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp(None)
-        .format_target(false)
-        .init();
 
     run::main(args)
 }

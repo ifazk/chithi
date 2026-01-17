@@ -15,7 +15,8 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use crate::AutoTerminate;
-use crate::{Args, Cmd, CmdTarget, Pipeline};
+use crate::args::sync::SyncArgs;
+use crate::{Cmd, CmdTarget, Pipeline};
 use log::{debug, warn};
 use std::{
     collections::{HashMap, HashSet},
@@ -41,7 +42,7 @@ impl ConnectionType {
     fn new<'args>(
         source_cmd_target: &'args CmdTarget<'args>,
         target_cmd_target: &'args CmdTarget<'args>,
-        args: &'args Args,
+        args: &'args SyncArgs,
     ) -> Self {
         match (source_cmd_target.is_remote(), target_cmd_target.is_remote()) {
             (true, true) => {
@@ -58,7 +59,7 @@ impl ConnectionType {
     }
 
     /// Make all decisions without doing existence checks
-    fn get_relevant_enabled(&self, args: &Args) -> HashSet<&'static str> {
+    fn get_relevant_enabled(&self, args: &SyncArgs) -> HashSet<&'static str> {
         let mut res = HashSet::new();
         let use_pv = std::io::stderr().is_terminal() && !args.quiet;
         let use_compress = args.compress.is_some();
@@ -181,7 +182,7 @@ type Pipelines<'args, 'cmd> = (
 );
 
 impl<'args> OptionalCommands<'args> {
-    fn check(args: &Args, cmd: &Cmd) -> io::Result<bool> {
+    fn check(args: &SyncArgs, cmd: &Cmd) -> io::Result<bool> {
         if args.no_command_checks {
             Ok(true)
         } else {
@@ -204,7 +205,7 @@ impl<'args> OptionalCommands<'args> {
     }
     fn insert_all_checked<const N: usize>(
         &mut self,
-        args: &Args,
+        args: &SyncArgs,
         continue_without: &str,
         cmds: [OptionalCommand<'args>; N],
     ) -> io::Result<bool> {
@@ -227,7 +228,7 @@ impl<'args> OptionalCommands<'args> {
     }
     fn insert_all_delay_warn<const N: usize>(
         &mut self,
-        args: &Args,
+        args: &SyncArgs,
         cmds: [OptionalCommand<'args>; N],
         warn: &mut Vec<(&'static str, &'args str, &'static str)>,
     ) -> io::Result<bool> {
@@ -250,7 +251,7 @@ impl<'args> OptionalCommands<'args> {
     }
     fn insert_first_no_warn(
         &mut self,
-        args: &Args,
+        args: &SyncArgs,
         cmds: [OptionalCommand<'args>; 2],
     ) -> io::Result<bool> {
         for cmd in cmds {
@@ -266,7 +267,7 @@ impl<'args> OptionalCommands<'args> {
         source_cmd_target: &'args CmdTarget<'args>,
         target_cmd_target: &'args CmdTarget<'args>,
         local_cmd_target: &'args CmdTarget<'args>,
-        args: &'args Args,
+        args: &'args SyncArgs,
     ) -> io::Result<Self> {
         let conn_type = ConnectionType::new(source_cmd_target, target_cmd_target, args);
         let mut res = Self {

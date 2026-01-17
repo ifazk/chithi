@@ -1,3 +1,19 @@
+//  Chithi: OpenZFS replication tools
+//  Copyright (C) 2025-2026  Ifaz Kabir
+
+//  This program is free software: you can redistribute it and/or modify
+//  it under the terms of the GNU General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU General Public License for more details.
+
+//  You should have received a copy of the GNU General Public License
+//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::spec::{Loc, NormalizedJob, Project, Seconds};
 use crate::{args::run::RunArgs, spec::RunConfig};
 use log::{error, info};
@@ -9,6 +25,11 @@ use std::time::Duration;
 use std::{io, path::PathBuf};
 
 pub fn main(args: RunArgs) -> io::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp(None)
+        .format_target(false)
+        .init();
+
     let path = {
         let mut path = PathBuf::from("/etc/chithi/");
         path.push(format!("{}.toml", args.project));
@@ -86,9 +107,9 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 info!("not running disabled {task_loc}");
                 return Ok(());
             }
-            // extra info when task jobs != 1 and there are no enabled jobs
             let all_disabled = task.jobs.iter().all(|j| j.disabled);
             if task.jobs.len() != 1 && all_disabled {
+                // extra info when task jobs != 1 and there are no enabled jobs
                 info!("no enabled jobs for {task_loc}");
             }
             if task.parallel {

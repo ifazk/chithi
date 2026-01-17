@@ -15,11 +15,14 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use chithi::AutoTerminate;
+use chithi::args::sync::SyncArgs;
+use chithi::args::{Cli, Commands};
+use chithi::run;
 use chithi::sync_pipelines::OptionalCommands;
 use chithi::sys::hostname;
 use chithi::util::ReadableBytes;
 use chithi::zfs::{Creation, IntermediateSource, Snapshot, SnapshotInfo};
-use chithi::{Args, Cli, Cmd, CmdTarget, Commands, Fs, Role, Sequence, get_is_roots};
+use chithi::{Cmd, CmdTarget, Fs, Role, Sequence, get_is_roots};
 use clap::Parser;
 use log::{debug, error, info, trace, warn};
 use regex_lite::Regex;
@@ -45,7 +48,7 @@ struct CmdConfig<'args> {
     target_zfs: Cmd<'args>,
     optional_cmds: OptionalCommands<'args>,
     optional_features: HashSet<&'static str>,
-    args: &'args Args,
+    args: &'args SyncArgs,
     zfs_recv: Regex,
     resume_error_2: LazyCell<Regex>,
 }
@@ -60,7 +63,7 @@ impl<'args> CmdConfig<'args> {
         target_cmd_target: &'args CmdTarget<'args>,
         target_is_root: bool,
         local_cmd_target: &'args CmdTarget<'args>,
-        args: &'args Args,
+        args: &'args SyncArgs,
     ) -> io::Result<Self> {
         let source_zfs = Cmd::new_from_vec(source_cmd_target, !source_is_root, "zfs", vec![]);
         let target_ps = Cmd::new(target_cmd_target, false, "ps", &["-Ao", "args="]);
@@ -1849,7 +1852,7 @@ where {
     }
 }
 
-fn sync(args: Args) -> io::Result<()> {
+fn sync(args: SyncArgs) -> io::Result<()> {
     if args.recursive
         && args
             .send_options
@@ -2019,12 +2022,22 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Sync(args) => sync(args),
+        #[cfg(feature = "run-bundle")]
+        Commands::Run(args) => run::main(args),
         Commands::External(args) => {
             let mut program = OsString::from("chithi-");
             program.push(&args[0]);
-            let mut command = Command::new(program);
+            let mut command = Command::new(&program);
             command.args(&args[1..]);
-            Err(command.exec())
+            let err = command.exec();
+            if err.kind() == io::ErrorKind::NotFound {
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .format_timestamp(None)
+                    .format_target(false)
+                    .init();
+                error!("{} was not found in PATH", program.display());
+            }
+            Err(err)
         }
     }
 }
