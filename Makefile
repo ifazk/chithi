@@ -5,7 +5,11 @@ check: check_linux
 check_linux:
 	cargo fmt --check
 	cargo check --target x86_64-unknown-linux-musl
+	cargo check --target x86_64-unknown-linux-musl --features base
+	cargo check --target x86_64-unknown-linux-musl --features run-bin
 	cargo clippy --target x86_64-unknown-linux-musl
+	cargo clippy --target x86_64-unknown-linux-musl --features base
+	cargo clippy --target x86_64-unknown-linux-musl --features run-bin
 
 check_freebsd:
 	cargo fmt --check

@@ -20,7 +20,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 toml = { version = "0.9.10", features = ["std", "serde"], optional = true }
 
 [features]
-default = []
+default = ["run-bundle"]
 base = []
 spec = ["dep:toml"]
 run = ["spec"]

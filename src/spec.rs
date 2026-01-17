@@ -11,8 +11,10 @@ pub struct Job {
     pub command: Option<Vec<String>>,
     #[serde(default)]
     pub disabled: bool,
-    pub source: String,
-    pub target: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -72,9 +74,9 @@ impl std::fmt::Display for Seconds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut seconds = self.0;
         let hours = seconds / 3600;
-        seconds = seconds % 3600;
+        seconds %= 3600;
         let minutes = seconds / 60;
-        seconds = seconds % 60;
+        seconds %= 60;
         if hours > 0 {
             if hours == 1 {
                 write!(f, "{hours} hour")?
@@ -123,8 +125,8 @@ pub struct Project {
 pub struct NormalizedJob {
     pub command: Vec<String>,
     pub disabled: bool,
-    pub source: String,
-    pub target: String,
+    pub source: Option<String>,
+    pub target: Option<String>,
 }
 
 impl NormalizedJob {
@@ -132,8 +134,12 @@ impl NormalizedJob {
     pub fn get_command(&self) -> Command {
         let mut command = Command::new(&self.command[0]);
         command.args(&self.command[1..]);
-        command.arg(&self.source);
-        command.arg(&self.target);
+        if let Some(source) = self.source.as_deref() {
+            command.arg(source);
+        }
+        if let Some(target) = self.target.as_deref() {
+            command.arg(target);
+        }
         command
     }
     #[cfg(feature = "run")]
@@ -217,6 +223,7 @@ impl Project {
                 Self::check_command_maybe(&job.command, &job_loc)?;
                 let job_command = job.command.or_else(|| task_command.clone());
                 if let Some(command) = job_command {
+                    Self::check_sync_job(&command, &job_loc, job.source.is_some() && job.target.is_some())?;
                     Ok(NormalizedJob {
                         command,
                         disabled: job.disabled || task_disabled,
@@ -259,21 +266,32 @@ impl Project {
         };
         if command[0].as_str() == "chithi" && command.len() < 2 {
             error!(
-                "invalid chithi command found with no args for {loc}, please set a sync subcommand"
+                "invalid chithi command found with no args for {loc}, please set a chithi subcommand"
             );
             return Err(io::Error::other(format!(
-                "invalid chithi command found with no args for {loc}, please set a sync subcommand"
-            )));
-        }
-        // This is a safeguard for beginners.
-        // TODO decide if this is too much. It might be fun to do chithi run recursively.
-        if command[0].as_str() == "chithi" && command[1].as_str() != "sync" {
-            error!("invalid chithi command found for {loc}, please set a sync subcommand");
-            return Err(io::Error::other(format!(
-                "invalid chithi command found for {loc}, please set a sync subcommand"
+                "invalid chithi command found with no args for {loc}, please set a chithi subcommand"
             )));
         }
         Ok(())
+    }
+    fn check_sync_job(
+        command: &[String],
+        loc: &Loc,
+        source_target_is_some: bool,
+    ) -> io::Result<()> {
+        // This is a safeguard for beginners.
+        // TODO decide if this is too much. It might be fun to do chithi run recursively.
+        if command[0].as_str() == "chithi"
+            && command[1].as_str() == "sync"
+            && !source_target_is_some
+        {
+            error!("chithi sync command found for {loc}, but job did not have source and target");
+            Err(io::Error::other(format!(
+                "chithi sync command found for {loc}, but job did not have source and target"
+            )))
+        } else {
+            Ok(())
+        }
     }
 }
 

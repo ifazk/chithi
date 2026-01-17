@@ -86,12 +86,23 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 info!("not running disabled {task_loc}");
                 return Ok(());
             }
+            // extra info when task jobs != 1 and there are no enabled jobs
+            let all_disabled = task.jobs.iter().all(|j| j.disabled);
+            if task.jobs.len() != 1 && all_disabled {
+                info!("no enabled jobs for {task_loc}");
+            }
             if task.parallel {
                 // parallel (with config)
                 task.get_enabled_jobs(task_loc).collect()
             } else if args.no_run_config {
                 // sequential without config
+                if all_disabled {
+                    return Ok(());
+                }
                 for (job_num, job) in task.jobs.iter().enumerate() {
+                    if job.disabled {
+                        continue;
+                    }
                     let status = job.run()?;
                     if !status.success() {
                         let job_loc = task_loc.extend_job(job_num);
@@ -105,8 +116,14 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 return Ok(());
             } else {
                 // sequential with config
+                if all_disabled {
+                    return Ok(());
+                }
                 proj.run_config.inital_delay(task_loc);
                 for (job_num, job) in task.jobs.iter().enumerate() {
+                    if job.disabled {
+                        continue;
+                    }
                     let job_loc = task_loc.extend_job(job_num);
                     run_job_with_config(&proj.run_config, job_loc, job)?
                 }
@@ -230,7 +247,7 @@ pub fn run_job_with_config(
                         }
                     }
                     continue;
-                } else if let Some(_) = run_config.max_restart_count {
+                } else if run_config.max_restart_count.is_some() {
                     return Err(io::Error::other(format!(
                         "{job_loc} max restarts reached exited with {e}"
                     )));
