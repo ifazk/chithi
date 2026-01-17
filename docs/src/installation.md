@@ -27,5 +27,5 @@ run` subcommand directly to the `chithi` binary.
 
 ## Downloading binaries
 
-Binaries are available at https://github.com/ifazk/chithi/releases. Binaries are
-available for both linux and freebsd, and should be put in /usr/bin.
+Binaries are available at [https://github.com/ifazk/chithi/releases]. Binaries
+are available for both linux and freebsd, and should be put in /usr/bin.

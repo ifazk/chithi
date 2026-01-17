@@ -11,7 +11,8 @@ example is shown below.
 command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]
 
 [run]
-max-initial-delay-secs = 10
+# Uncomment to automatically restart jobs on failure
+#max-restarts = 5
 
 [[task.backups.job]]
 source= "tank/backups"
