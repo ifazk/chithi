@@ -33,3 +33,8 @@ Then the `backups` task can be run using `chithi run backups`, no need to
 remember the long sync command. A simple `chithi run` will both tasks `backups`
 and `home` in parallel, but jobs in a task run sequentially unless the parallel
 option is set to true.
+
+Jobs in a task are numbered in the order they appear in the TOML file starting
+from 0, (see [Array of Tables](https://toml.io/en/v1.1.0#array-of-tables) in the
+TOML reference). Jobs can be run on there own using the runner. For example, to
+run the second job in the `home` task, you can use `chithi run home.1`.

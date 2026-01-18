@@ -1,5 +1,7 @@
 # Syncoid
 
+**This section of the documentiation is still in progress**
+
 The `sync` command in chithi is a port of `syncoid` 2.3 from the [sanoid
 project](https://github.com/jimsalterjrs/sanoid).
 

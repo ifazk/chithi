@@ -7,14 +7,14 @@
 - [Installation](./installation.md)
 - [Basic sync](./basic.md)
 - [Advanced sync](./advanced.md)
-- [Forced Termination](./termination.md)
+- [Forced termination](./termination.md)
 - [Syncoid compatibility](./compatibility.md)
 
 # Task Runner
 
 - [`run` command](./run/runner.md)
 - [Configuration](./run/config.md)
-- [Using with timeout command](./run/timeout.md)
+- [Expert Use Cases](./run/advanced.md)
 
 <!-- # Status Checks -->
 
