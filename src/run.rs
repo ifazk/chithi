@@ -120,6 +120,20 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 if all_disabled {
                     return Ok(());
                 }
+                let _pid_file = if !args.create_pid_files {
+                    None
+                } else {
+                    match task_loc.create_pidfile() {
+                        Ok(pid_file) => Some(pid_file),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            error!("another instance of {task_loc} seems to be running");
+                            return Err(io::Error::other(format!(
+                                "another instance of {task_loc} seems to be running"
+                            )));
+                        }
+                        Err(e) => return Err(e),
+                    }
+                };
                 for (job_num, job) in task.jobs.iter().enumerate() {
                     if job.disabled {
                         continue;
@@ -140,6 +154,20 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 if all_disabled {
                     return Ok(());
                 }
+                let _pid_file = if !args.create_pid_files {
+                    None
+                } else {
+                    match task_loc.create_pidfile() {
+                        Ok(pid_file) => Some(pid_file),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            error!("another instance of {task_loc} seems to be running");
+                            return Err(io::Error::other(format!(
+                                "another instance of {task_loc} seems to be running"
+                            )));
+                        }
+                        Err(e) => return Err(e),
+                    }
+                };
                 proj.run_config.inital_delay(task_loc);
                 for (job_num, job) in task.jobs.iter().enumerate() {
                     if job.disabled {
@@ -171,6 +199,34 @@ pub fn main(args: RunArgs) -> io::Result<()> {
             if job.disabled {
                 info!("not running disabled {job_loc}");
                 return Ok(());
+            };
+            // Pid file
+            let mut _pid_file = if !args.create_pid_files {
+                None
+            } else if task.parallel {
+                // job in parallel task, use job_loc for pid
+                match job_loc.create_pidfile() {
+                    Ok(pid_file) => Some(pid_file),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        error!("another instance of {job_loc} seems to be running");
+                        return Err(io::Error::other(format!(
+                            "another instance of {job_loc} seems to be running"
+                        )));
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                // job in sequential task, use task_loc for pid
+                match task_loc.create_pidfile() {
+                    Ok(pid_file) => Some(pid_file),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        error!("another instance of {task_loc} seems to be running");
+                        return Err(io::Error::other(format!(
+                            "another instance of {task_loc} seems to be running"
+                        )));
+                    }
+                    Err(e) => return Err(e),
+                }
             };
             // Job run
             if args.no_run_config {
@@ -208,6 +264,9 @@ pub fn main(args: RunArgs) -> io::Result<()> {
         };
         cmd.arg("--project");
         cmd.arg(j.proj_name);
+        if args.create_pid_files {
+            cmd.arg("--create-pid-files");
+        }
         if let Some(task) = j.task_name {
             if let Some(job_num) = j.job_num {
                 cmd.arg(format!("{task}.{job_num}"));

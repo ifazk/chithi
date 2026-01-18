@@ -11,13 +11,25 @@ example is shown below.
 command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]
 
 [run]
-# Uncomment to automatically restart jobs on failure
+# Uncomment to automatically restart jobs on failure.
 #max-restarts = 5
 
 [[task.backups.job]]
-source= "tank/backups"
-target= "onsite/backups"
+source = "tank/backups"
+target = "onsite/backups"
+
+[task.home]
+# Uncomment to make jobs in the task run in parallel.
+#parallel = true
+[[task.home.job]]
+source = "tank/home/user1"
+target = "onsite/home/user1"
+[[task.home.job]]
+source = "tank/home/user2"
+target = "onsite/home/user2"
 ```
 
 Then the `backups` task can be run using `chithi run backups`, no need to
-remember the long sync command.
+remember the long sync command. A simple `chithi run` will both tasks `backups`
+and `home` in parallel, but jobs in a task run sequentially unless the parallel
+option is set to true.

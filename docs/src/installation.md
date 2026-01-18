@@ -29,3 +29,11 @@ run` subcommand directly to the `chithi` binary.
 
 Binaries are available at [https://github.com/ifazk/chithi/releases]. Binaries
 are available for both linux and freebsd, and should be put in /usr/bin.
+
+## Security of recursive calls in task runner
+
+The `chithi run` and `chithi-run` commands call themselves recursively. So the
+installation path (usually `/usr/bin`) needs to be secured against unauthorized
+modifications and the binary itself needs to have permissions set correctly. See
+[here](https://vulners.com/securityvulns/SECURITYVULNS:DOC:22183) for an exmaple
+of a privilege escalation vulnerability resulting from recursive calls.

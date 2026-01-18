@@ -27,6 +27,12 @@ pub struct RunArgs {
     #[arg(long)]
     pub no_run_config: bool,
 
+    /// Creates pid files in /var/run/chithi for sequential tasks and parallel
+    /// jobs that are used to prevent multiple instances from running at the
+    /// same time. This flag should only be used when running as root.
+    #[arg(long)]
+    pub create_pid_files: bool,
+
     /// Name of project. The runner will look for a .toml file with this name in /etc/chithi/
     #[arg(long, default_value = "chithi")]
     pub project: String,

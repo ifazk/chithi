@@ -6,6 +6,31 @@ using the following command.
 
     chithi help sync
 
+## Remote Hosts
+
+The source and target may be specified as local dataset, a remote host with a
+dataset in the form [user@]host:dataset. The following is an example of
+replicating between two remote hosts.
+
+    chithi sync user1@remotehost:sourcepool/myfiles user2@anotherhost:targetpool/myfiles
+    
+The remote hosts can be separately set using the --source-host and
+--target-host options. The following command is equivalent to the above command.
+
+    chithi sync --source-host=user1@remotehost --target-host=user2@anotherhost sourcepool/myfiles targetpool/myfiles
+
+OpenZFS allows component names to have `:`, including in pool names. In the
+following, Chithi treats `remotehost` and `anotherhost` as remote hosts, not as
+part of the pool name.
+
+    chithi sync remotehost:sourcepool/myfiles anotherhost:targetpool/myfiles
+
+But if we pass empty source and target host options, then we can use local pools
+that contain `:` in the pool name. In the following `prefix` is *not* treated as
+a remote host.
+
+    chithi sync --source-host= --target-host= prefix:sourcepool/myfiles prefix:targetpool/myfiles
+
 ## External Snapshotting tools
 
 Chithi is in many ways, expected to be used with external snapshotting tools,

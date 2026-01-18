@@ -340,6 +340,32 @@ impl<'a, 'b> Loc<'a, 'b> {
             proj_name: self.proj_name,
         }
     }
+    #[cfg(feature = "run")]
+    pub fn create_pidfile(&self) -> io::Result<PidFile> {
+        const VAR_RUN: &str = "/var/run/chithi";
+        let pidfile_path = if self.task_name.is_some() {
+            let proj_dir = std::path::PathBuf::from(VAR_RUN).join(self.proj_name);
+            std::fs::create_dir_all(&proj_dir)?;
+            if self.job_num.is_some() {
+                proj_dir.join(format!(
+                    "{}.{}.pid",
+                    self.task_name.expect("task name is some"),
+                    self.job_num.expect("job num is some")
+                ))
+            } else {
+                proj_dir.join(format!(
+                    "{}.pid",
+                    self.task_name.expect("task name is some")
+                ))
+            }
+        } else {
+            let chithi_dir = std::path::PathBuf::from(VAR_RUN);
+            std::fs::create_dir_all(&chithi_dir)?;
+            chithi_dir.join(format!("{}.pid", self.proj_name))
+        };
+        let pidfile = PidFile::new(pidfile_path)?;
+        Ok(pidfile)
+    }
 }
 
 impl<'a, 'b> std::fmt::Display for Loc<'a, 'b> {
@@ -354,5 +380,37 @@ impl<'a, 'b> std::fmt::Display for Loc<'a, 'b> {
             write!(f, "in ")?
         }
         write!(f, "project {}", self.proj_name)
+    }
+}
+
+#[cfg(feature = "run")]
+/// A PidFile that is closed and unlinked when the object goes out of scope
+pub struct PidFile {
+    file: std::fs::File,
+}
+
+#[cfg(feature = "run")]
+impl PidFile {
+    pub fn new(path: std::path::PathBuf) -> io::Result<Self> {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o644)
+            .open(path.as_path())?;
+        file.try_lock()?;
+        file.set_len(0)?;
+        let pid = format!("{}", std::process::id());
+        file.write_all(pid.as_bytes())?;
+        Ok(Self { file })
+    }
+}
+
+#[cfg(feature = "run")]
+impl Drop for PidFile {
+    fn drop(&mut self) {
+        let _ = self.file.set_len(0);
     }
 }
