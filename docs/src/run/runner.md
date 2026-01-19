@@ -1,8 +1,8 @@
 # `run` command
 
 The `sync` command can get very verbose and error prone when manually running
-the same sync task repeatedly. For these situations, we provide the runner
-plugin, which allows running sync tasks by name.
+the same sync task repeatedly. For these situations, we provide the `run`
+command, which allows running sync tasks by name.
 
 It is configured by configuring the TOML file `/etc/chithi/chithi.toml`. An
 example is shown below.

@@ -18,9 +18,10 @@ use log::{error, info};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io;
+use std::path::PathBuf;
+
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 use std::process::{Command, ExitStatus, Stdio};
-use std::thread::sleep;
-use std::time::Duration;
 
 #[derive(Deserialize)]
 pub struct Job {
@@ -58,7 +59,7 @@ pub struct RunConfig {
 }
 
 impl RunConfig {
-    #[cfg(feature = "run")]
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn restart_delay(&self, run_idx: usize) -> Option<u16> {
         let restart_delay = self
             .restart_delay_secs
@@ -70,14 +71,14 @@ impl RunConfig {
             (x, y) => x.or(y),
         }
     }
-    #[cfg(feature = "run")]
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn inital_delay(&self, loc: Loc) {
         // Initial delay
         if let Some(delay) = self.max_inital_delay_secs {
             let secs = rand::random_range(0..delay);
             if secs > 0 {
                 info!("delaying {loc} by {}", Seconds(secs));
-                sleep(Duration::from_secs(secs as u64));
+                std::thread::sleep(std::time::Duration::from_secs(secs as u64));
             }
         };
     }
@@ -146,7 +147,7 @@ pub struct NormalizedJob {
 }
 
 impl NormalizedJob {
-    #[cfg(feature = "run")]
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn get_command(&self) -> Command {
         let mut command = Command::new(&self.command[0]);
         command.args(&self.command[1..]);
@@ -158,7 +159,7 @@ impl NormalizedJob {
         }
         command
     }
-    #[cfg(feature = "run")]
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn run(&self) -> io::Result<ExitStatus> {
         self.get_command().stdin(Stdio::null()).status()
     }
@@ -187,6 +188,56 @@ impl NormalizedTask {
     }
 }
 
+/// An abstraction over tasks and jobs so that we can iterate over both
+/// sequential tasks and jobs in parallel tasks
+pub enum TaskOrJob<J, T> {
+    Job(J),
+    Task(T),
+}
+
+pub struct TaskOrJobIter<J, I> {
+    current: Option<J>,
+    rest: I,
+}
+
+impl<J, T, I: Iterator<Item = TaskOrJob<J, T>>> TaskOrJobIter<J, I> {
+    pub fn new(iter: I) -> Self {
+        Self {
+            current: None,
+            rest: iter,
+        }
+    }
+}
+
+impl<S, J: Iterator<Item = S>, I: Iterator<Item = TaskOrJob<J, S>>> Iterator
+    for TaskOrJobIter<J, I>
+{
+    type Item = S;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let from_current = self.current.as_mut().and_then(|x| x.next());
+            if from_current.is_some() {
+                return from_current;
+            };
+            self.current = None;
+            let from_rest = self.rest.next();
+            match from_rest {
+                Some(TaskOrJob::Task(s)) => return Some(s),
+                Some(TaskOrJob::Job(iter)) => {
+                    // foo
+                    self.current = Some(iter);
+                    continue;
+                }
+                None => {
+                    // iterator ended
+                    return None;
+                }
+            }
+        }
+    }
+}
+
 pub struct NormalizedProject {
     pub name: String,
     pub disabled: bool,
@@ -203,27 +254,80 @@ impl NormalizedProject {
         &'proj self,
     ) -> impl Iterator<Item = Loc<'proj, 'proj>> {
         let proj_loc = self.get_loc();
-        self.tasks
-            .iter()
-            .filter_map(move |(task_name, task)| {
-                if task.disabled {
-                    info!("{} is disabled", self.get_loc().extend_task(task_name));
-                    None
-                } else if task.parallel {
-                    Some(
-                        Box::new(task.get_enabled_jobs(proj_loc.extend_task(task_name)))
-                            as Box<dyn Iterator<Item = Loc<'proj, 'proj>>>,
-                    )
-                } else {
-                    Some(Box::new(std::iter::once(proj_loc.extend_task(task_name)))
-                        as Box<dyn Iterator<Item = Loc<'proj, 'proj>>>)
-                }
-            })
-            .flatten()
+        let iter = self.tasks.iter().filter_map(move |(task_name, task)| {
+            if task.disabled {
+                info!("{} is disabled", self.get_loc().extend_task(task_name));
+                None
+            } else if task.parallel {
+                Some(TaskOrJob::Job(
+                    task.get_enabled_jobs(proj_loc.extend_task(task_name)),
+                ))
+            } else {
+                Some(TaskOrJob::Task(proj_loc.extend_task(task_name)))
+            }
+        });
+        TaskOrJobIter::new(iter)
+    }
+    pub fn list_independents(
+        &self,
+        skip_disabled: bool,
+    ) -> impl Iterator<
+        Item = TaskOrJob<
+            impl Iterator<Item = (Loc<'_, '_>, &NormalizedJob)>,
+            (Loc<'_, '_>, &NormalizedTask),
+        >,
+    > {
+        let proj_loc = self.get_loc();
+        self.tasks.iter().filter_map(move |(task_name, task)| {
+            let task_loc = proj_loc.extend_task(task_name);
+            if skip_disabled && (task.disabled || task.jobs.iter().all(|j| j.disabled)) {
+                None
+            } else if task.parallel {
+                let iter = task
+                    .jobs
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(job_num, job)| {
+                        if skip_disabled && job.disabled {
+                            None
+                        } else {
+                            let job_loc = task_loc.extend_job(job_num);
+                            Some((job_loc, job))
+                        }
+                    });
+                Some(TaskOrJob::Job(iter))
+            } else {
+                Some(TaskOrJob::Task((task_loc, task)))
+            }
+        })
     }
 }
 
 impl Project {
+    pub fn new(project: &str) -> io::Result<Self> {
+        let path = {
+            let mut path = PathBuf::from("/etc/chithi/");
+            path.push(format!("{}.toml", project));
+            path
+        };
+        let file = std::fs::read_to_string(&path);
+        let file = match file {
+            Ok(s) => s,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                error!("{} not found", path.display());
+                return Err(e);
+            }
+            Err(e) => return Err(e),
+        };
+
+        toml::from_str(&file).map_err(|e| {
+            error!("could not parse project toml {}: {e}", path.display());
+            io::Error::other(format!(
+                "could not parse project toml {}: {e}",
+                path.display()
+            ))
+        })
+    }
     pub fn normalize(self, proj_name: &str) -> io::Result<NormalizedProject> {
         let proj_loc = Loc::new(proj_name);
         Self::check_command_maybe(&self.default_project_command, &proj_loc)?;
@@ -340,24 +444,19 @@ impl<'a, 'b> Loc<'a, 'b> {
             proj_name: self.proj_name,
         }
     }
-    #[cfg(feature = "run")]
+    pub fn display_label(&self) -> impl std::fmt::Display {
+        LocLabel {
+            task_name: self.task_name,
+            job_num: self.job_num,
+        }
+    }
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn create_pidfile(&self) -> io::Result<PidFile> {
         const VAR_RUN: &str = "/var/run/chithi";
         let pidfile_path = if self.task_name.is_some() {
             let proj_dir = std::path::PathBuf::from(VAR_RUN).join(self.proj_name);
             std::fs::create_dir_all(&proj_dir)?;
-            if self.job_num.is_some() {
-                proj_dir.join(format!(
-                    "{}.{}.pid",
-                    self.task_name.expect("task name is some"),
-                    self.job_num.expect("job num is some")
-                ))
-            } else {
-                proj_dir.join(format!(
-                    "{}.pid",
-                    self.task_name.expect("task name is some")
-                ))
-            }
+            proj_dir.join(format!("{}.pid", self.display_label()))
         } else {
             let chithi_dir = std::path::PathBuf::from(VAR_RUN);
             std::fs::create_dir_all(&chithi_dir)?;
@@ -383,13 +482,30 @@ impl<'a, 'b> std::fmt::Display for Loc<'a, 'b> {
     }
 }
 
-#[cfg(feature = "run")]
+struct LocLabel<'proj> {
+    task_name: Option<&'proj str>,
+    job_num: Option<usize>,
+}
+
+impl<'proj> std::fmt::Display for LocLabel<'proj> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(task_name) = self.task_name {
+            write!(f, "{task_name}")?
+        };
+        if let Some(job_num) = self.job_num {
+            write!(f, ".{job_num}")?
+        };
+        Ok(())
+    }
+}
+
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 /// A PidFile that is closed and unlinked when the object goes out of scope
 pub struct PidFile {
     file: std::fs::File,
 }
 
-#[cfg(feature = "run")]
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 impl PidFile {
     pub fn new(path: std::path::PathBuf) -> io::Result<Self> {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
@@ -408,7 +524,7 @@ impl PidFile {
     }
 }
 
-#[cfg(feature = "run")]
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 impl Drop for PidFile {
     fn drop(&mut self) {
         let _ = self.file.set_len(0);

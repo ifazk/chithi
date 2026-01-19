@@ -14,6 +14,8 @@ changes between minor versions.
 ### Added
 
 - `chithi-run` task runner binary
+- `chithi run` command for task runner
+- `chithi list` command for listing tasks and jobs
 
 ## [0.1.1] - 2025-01-11
 

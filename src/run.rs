@@ -18,11 +18,11 @@ use crate::spec::{Loc, NormalizedJob, Project, Seconds};
 use crate::{args::run::RunArgs, spec::RunConfig};
 use log::{error, info};
 use std::collections::HashMap;
+use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
-use std::{io, path::PathBuf};
 
 pub fn main(args: RunArgs) -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -30,28 +30,7 @@ pub fn main(args: RunArgs) -> io::Result<()> {
         .format_target(false)
         .init();
 
-    let path = {
-        let mut path = PathBuf::from("/etc/chithi/");
-        path.push(format!("{}.toml", args.project));
-        path
-    };
-    let file = std::fs::read_to_string(&path);
-    let file = match file {
-        Ok(s) => s,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            error!("{} not found", path.display());
-            return Err(e);
-        }
-        Err(e) => return Err(e),
-    };
-
-    let proj: Project = toml::from_str(&file).map_err(|e| {
-        error!("could not parse project toml {}: {e}", path.display());
-        io::Error::other(format!(
-            "could not parse project toml {}: {e}",
-            path.display()
-        ))
-    })?;
+    let proj = Project::new(&args.project)?;
     let proj = proj.normalize(&args.project)?;
 
     let (task_maybe, job_maybe) = match args.task_or_job.as_deref() {

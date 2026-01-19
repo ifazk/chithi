@@ -17,7 +17,9 @@
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
 
-#[cfg(feature = "run")]
+#[cfg(feature = "list")]
+pub mod list;
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 pub mod run;
 pub mod sync;
 
@@ -32,9 +34,13 @@ pub struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Replicates a dataset to another pool
+    /// Replicates a dataset to another pool.
     Sync(sync::SyncArgs),
+    #[cfg(feature = "list")]
+    /// Lists tasks and jobs in a chithi project.
+    List(list::ListArgs),
     #[cfg(feature = "run-bundle")]
+    /// Task runner.
     Run(run::RunArgs),
     #[command(external_subcommand)]
     External(Vec<OsString>),

@@ -24,10 +24,12 @@ pub mod sys;
 pub mod util;
 pub mod zfs;
 
-#[cfg(feature = "run")]
+#[cfg(feature = "list")]
+pub mod list;
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 pub mod run;
-#[cfg(feature = "spec")]
 pub mod spec;
+pub mod sync;
 
 pub use cmd::Cmd;
 pub use cmd::CmdTarget;

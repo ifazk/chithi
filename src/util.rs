@@ -45,3 +45,59 @@ impl Display for ReadableBytes {
         Ok(())
     }
 }
+
+pub struct SpaceSeparatedStrings<T>(pub T);
+
+impl<U: AsRef<[String]>> Display for SpaceSeparatedStrings<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.0.as_ref().iter();
+        if let Some(t) = iter.next() {
+            write!(f, "{t}")?;
+        };
+        for t in iter {
+            write!(f, " {t}")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct SpaceSeparatedStrs<T>(pub T);
+
+impl<'a, U: AsRef<[&'a str]>> Display for SpaceSeparatedStrs<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.0.as_ref().iter();
+        if let Some(t) = iter.next() {
+            write!(f, "{t}")?;
+        };
+        for t in iter {
+            write!(f, " {t}")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct SpaceSeparatedCowStrs<T>(pub T);
+
+impl<'a, U: AsRef<[std::borrow::Cow<'a, str>]>> Display for SpaceSeparatedCowStrs<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.0.as_ref().iter();
+        if let Some(t) = iter.next() {
+            write!(f, "{t}")?;
+        };
+        for t in iter {
+            write!(f, " {t}")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct OptDisplay<T>(pub T);
+
+impl<T: Display> Display for OptDisplay<Option<&T>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(t) = self.0 {
+            write!(f, "{t}")?;
+        }
+        Ok(())
+    }
+}

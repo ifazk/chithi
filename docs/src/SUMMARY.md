@@ -15,6 +15,7 @@
 - [`run` command](./run/runner.md)
 - [Configuration](./run/config.md)
 - [Expert Use Cases](./run/advanced.md)
+- [`list` command](./list/list.md)
 
 <!-- # Status Checks -->
 
