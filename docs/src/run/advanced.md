@@ -4,11 +4,11 @@
 
 Systemd offers its own restarts, and job handling. When using these systemd
 features, it is best to pass the `--no-run-config` flag to the runner. The
-following is an example of a systemd service file using the flag.
+following is an example of systemd service and timer files using the flag.
 
 ```ini
 [Unit]
-Description=Chithi Run
+Description=Chithi Run %i
 Requires=local-fs.target
 After=local-fs.target
 StartLimitBurst=5
@@ -16,9 +16,35 @@ StartLimitIntervalSec=12h
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/chithi run --no-run-config task
+ExecStart=/usr/sbin/chithi run --no-run-config %i
 Restart=on-failure
 RestartSec=5min
+```
+
+The `RandomizedDelaySec` acts like the `max-initial-delay-secs` option.
+
+```ini
+[Unit]
+Description=Cithi Run %i
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+# Optional if timer file is chithi-run@%i.timer
+Unit=chithi-run@%i.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Save the above files as `chithi-run@.service` and `chithi-run@.timer` in
+`/etc/systemd/system/` and run `sudo systemctl daemon-reload`. Then a daily
+schedule can be added to everything in the default project by running the
+following (requires [list command](../list/list.md)).
+
+```
+for i in $(chithi list); do sudo systemctl enable chithi-run@$i.timer --now; done
 ```
 
 ## Calling from cron
@@ -70,7 +96,7 @@ At least not a built-in timeout. There are a few architectural decisions at play
 2. The chithi project does not write platform specific code for Linux and
    FreeBSD.
 3. Unix/POSIX does not have good ways of waiting on child programs to finish and
-   on a timer at the same time, without using signal handlers.
+   on a timer at the same time (without using signal handlers).
 
 There are things we could do, such as use the timeout command itself, and run
 commands in a `sh` shell automatically, and keeping track of time elapsed, etc,
