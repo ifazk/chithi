@@ -16,7 +16,7 @@
 
 use log::{error, info};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
 
@@ -32,6 +32,8 @@ pub struct Job {
     pub source: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +46,8 @@ pub struct Task {
     pub parallel: bool,
     #[serde(rename = "job")]
     pub jobs: Vec<Job>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -144,6 +148,7 @@ pub struct NormalizedJob {
     pub disabled: bool,
     pub source: Option<String>,
     pub target: Option<String>,
+    pub tags: HashSet<String>,
 }
 
 impl NormalizedJob {
@@ -163,12 +168,17 @@ impl NormalizedJob {
     pub fn run(&self) -> io::Result<ExitStatus> {
         self.get_command().stdin(Stdio::null()).status()
     }
+    pub fn doesnt_have_tags(&self, tags: Option<&[&str]>) -> bool {
+        tags.as_ref()
+            .is_some_and(|tags| tags.iter().any(|&t| !self.tags.contains(t)))
+    }
 }
 
 pub struct NormalizedTask {
     pub disabled: bool,
     pub parallel: bool,
     pub jobs: Vec<NormalizedJob>,
+    pub tags: HashSet<String>,
 }
 
 impl NormalizedTask {
@@ -185,6 +195,10 @@ impl NormalizedTask {
                 Some(job_loc)
             }
         })
+    }
+    pub fn doesnt_have_tags(&self, tags: Option<&[&str]>) -> bool {
+        tags.as_ref()
+            .is_some_and(|tags| tags.iter().any(|&t| !self.tags.contains(t)))
     }
 }
 
@@ -271,6 +285,7 @@ impl NormalizedProject {
     pub fn list_independents(
         &self,
         skip_disabled: bool,
+        tags: Option<&[&str]>,
     ) -> impl Iterator<
         Item = TaskOrJob<
             impl Iterator<Item = (Loc<'_, '_>, &NormalizedJob)>,
@@ -280,7 +295,9 @@ impl NormalizedProject {
         let proj_loc = self.get_loc();
         self.tasks.iter().filter_map(move |(task_name, task)| {
             let task_loc = proj_loc.extend_task(task_name);
-            if skip_disabled && (task.disabled || task.jobs.iter().all(|j| j.disabled)) {
+            if (skip_disabled && (task.disabled || task.jobs.iter().all(|j| j.disabled)))
+                || (!task.parallel && task.doesnt_have_tags(tags))
+            {
                 None
             } else if task.parallel {
                 let iter = task
@@ -288,7 +305,7 @@ impl NormalizedProject {
                     .iter()
                     .enumerate()
                     .filter_map(move |(job_num, job)| {
-                        if skip_disabled && job.disabled {
+                        if (skip_disabled && job.disabled) || job.doesnt_have_tags(tags) {
                             None
                         } else {
                             let job_loc = task_loc.extend_job(job_num);
@@ -331,24 +348,39 @@ impl Project {
     pub fn normalize(self, proj_name: &str) -> io::Result<NormalizedProject> {
         let proj_loc = Loc::new(proj_name);
         Self::check_command_maybe(&self.default_project_command, &proj_loc)?;
-        let tasks: io::Result<HashMap<String, NormalizedTask>> = self.tasks.into_iter().map(|(task_name, task)| {
+        let tasks: io::Result<HashMap<String, NormalizedTask>> = self.tasks.into_iter().map(|(task_name, mut task)| {
             let task_loc = proj_loc.extend_task(&task_name);
             Self::check_command_maybe(&task.default_task_command, &task_loc)?;
             let task_command = task
                 .default_task_command
                 .or_else(|| self.default_project_command.clone());
             let task_disabled = task.disabled || self.disabled;
-            let jobs: Vec<_> = task.jobs.into_iter().enumerate().map(|(job_num, job)| {
+            if task.tags.is_empty() && task.jobs.len() == 1 && let Some(job) = task.jobs.first_mut() {
+                task.tags.append(&mut job.tags);
+            };
+            for tag in &task.tags {
+                Self::check_tag(tag)?;
+            }
+            let jobs: Vec<_> = task.jobs.into_iter().enumerate().map(|(job_num, mut job)| {
                 let job_loc = task_loc.extend_job(job_num);
                 Self::check_command_maybe(&job.command, &job_loc)?;
+                for tag in &job.tags {
+                    Self::check_tag(tag)?;
+                };
                 let job_command = job.command.or_else(|| task_command.clone());
                 if let Some(command) = job_command {
                     Self::check_sync_job(&command, &job_loc, job.source.is_some() && job.target.is_some())?;
+                    if !task.parallel && !job.tags.is_empty() {
+                        error!("jobs in sequential tasks with more than 1 job should not have tags, tag set for {job_loc}");
+                        return Err(io::Error::other(format!("jobs in sequential tasks with more than 1 job should not have tags, tag set for {job_loc}")));
+                    };
+                    job.tags.extend_from_slice(&task.tags);
                     Ok(NormalizedJob {
                         command,
                         disabled: job.disabled || task_disabled,
                         source: job.source,
                         target: job.target,
+                        tags: job.tags.into_iter().collect(),
                     })
                 } else {
                     error!("command not set for {job_loc}, please set a command at the job, task, or project level");
@@ -359,6 +391,7 @@ impl Project {
                             disabled: task_disabled,
                             parallel: task.parallel,
                             jobs,
+                            tags: task.tags.into_iter().collect(),
                         }))
         }).collect();
         tasks.map(|tasks| NormalizedProject {
@@ -368,7 +401,40 @@ impl Project {
             tasks,
         })
     }
-
+    fn check_tag(tag: &str) -> io::Result<()> {
+        if tag.is_empty() {
+            error!("empty string not be used as a tag");
+            return Err(io::Error::other("found empty string tag in project"));
+        }
+        if tag.starts_with('/') {
+            error!("tags should not beigin '/'");
+            return Err(io::Error::other(
+                "found tag in project that starts with '/'",
+            ));
+        }
+        const RESERVED: [&str; 6] = ["none", "any", "all", "and", "or", "not"];
+        if RESERVED.contains(&tag) {
+            error!("none, any, all, and, or, not are reserved and should not be used as tags");
+            return Err(io::Error::other(format!(
+                "use a reserved word as a tag in project '{}'",
+                tag
+            )));
+        }
+        if tag
+            .chars()
+            .any(|c| c == ',' || c == 'y' || c == ')' || c.is_whitespace())
+        {
+            error!(
+                "tags cannot contain commas, parentheses or whitespace characters, invalid tag \"{}\"",
+                tag.escape_default()
+            );
+            return Err(io::Error::other(format!(
+                "invalid tag \"{}\"",
+                tag.escape_default()
+            )));
+        }
+        Ok(())
+    }
     fn check_command_maybe(command: &Option<Vec<String>>, loc: &Loc) -> io::Result<()> {
         if let Some(command) = command {
             Self::check_command(command, loc)?
@@ -400,7 +466,6 @@ impl Project {
         source_target_is_some: bool,
     ) -> io::Result<()> {
         // This is a safeguard for beginners.
-        // TODO decide if this is too much. It might be fun to do chithi run recursively.
         if command[0].as_str() == "chithi"
             && command[1].as_str() == "sync"
             && !source_target_is_some

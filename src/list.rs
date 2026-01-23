@@ -35,6 +35,11 @@ pub fn main(args: ListArgs) -> io::Result<()> {
         return Ok(());
     }
 
+    let tags = args
+        .tags
+        .as_deref()
+        .map(|tags| tags.split(',').collect::<Vec<_>>());
+
     if let Some(task_name) = args.task {
         if let Some(task) = proj.tasks.get(&task_name) {
             if args.skip_disabled && task.disabled {
@@ -45,7 +50,9 @@ pub fn main(args: ListArgs) -> io::Result<()> {
             }
             let task_loc = proj.get_loc().extend_task(&task_name);
             let jobs = task.jobs.iter().enumerate().filter_map(|(job_num, job)| {
-                if args.skip_disabled && job.disabled {
+                let skip =
+                    (args.skip_disabled && job.disabled) || job.doesnt_have_tags(tags.as_deref());
+                if skip {
                     None
                 } else {
                     Some((task_loc.extend_job(job_num), job))
@@ -62,7 +69,7 @@ pub fn main(args: ListArgs) -> io::Result<()> {
             )));
         }
     } else {
-        let independents = proj.list_independents(args.skip_disabled);
+        let independents = proj.list_independents(args.skip_disabled, tags.as_deref());
         print_listings(args.long, !args.no_headers, independents)?
     }
 

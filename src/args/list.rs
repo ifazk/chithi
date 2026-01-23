@@ -32,6 +32,10 @@ pub struct ListArgs {
     #[arg(long)]
     pub skip_disabled: bool,
 
+    /// Filter by tags. Multiple tags can be included by seprating them with commas.
+    #[arg(long)]
+    pub tags: Option<String>,
+
     /// Name of project. Chithi will look for a .toml file with this name in /etc/chithi/.
     #[arg(long, default_value = "chithi")]
     pub project: String,
