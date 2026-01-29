@@ -15,6 +15,7 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use crate::args::list::ListArgs;
+use crate::args::tags::TagFilter;
 use crate::spec::{Loc, NormalizedJob, NormalizedTask, Project, TaskOrJob, TaskOrJobIter};
 use crate::util::{OptDisplay, SpaceSeparatedStrings};
 use log::{error, info};
@@ -35,10 +36,11 @@ pub fn main(args: ListArgs) -> io::Result<()> {
         return Ok(());
     }
 
-    let tags = args
-        .tags
-        .as_deref()
-        .map(|tags| tags.split(',').collect::<Vec<_>>());
+    let tags = match args.tags.as_deref() {
+        Some(tags) => Some(TagFilter::parse(tags)?),
+        None => None,
+    };
+    let tags = tags.as_ref();
 
     if let Some(task_name) = args.task {
         if let Some(task) = proj.tasks.get(&task_name) {
@@ -50,8 +52,7 @@ pub fn main(args: ListArgs) -> io::Result<()> {
             }
             let task_loc = proj.get_loc().extend_task(&task_name);
             let jobs = task.jobs.iter().enumerate().filter_map(|(job_num, job)| {
-                let skip =
-                    (args.skip_disabled && job.disabled) || job.doesnt_have_tags(tags.as_deref());
+                let skip = (args.skip_disabled && job.disabled) || job.doesnt_match(tags);
                 if skip {
                     None
                 } else {
@@ -69,7 +70,7 @@ pub fn main(args: ListArgs) -> io::Result<()> {
             )));
         }
     } else {
-        let independents = proj.list_independents(args.skip_disabled, tags.as_deref());
+        let independents = proj.list_independents(args.skip_disabled, tags);
         print_listings(args.long, !args.no_headers, independents)?
     }
 

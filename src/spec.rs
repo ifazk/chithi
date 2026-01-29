@@ -14,12 +14,16 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info};
+use log::error;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
 
+#[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
+use crate::args::tags::TagFilter;
+#[cfg(any(feature = "run-bin", feature = "run-bundle"))]
+use log::info;
 #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 use std::process::{Command, ExitStatus, Stdio};
 
@@ -168,9 +172,9 @@ impl NormalizedJob {
     pub fn run(&self) -> io::Result<ExitStatus> {
         self.get_command().stdin(Stdio::null()).status()
     }
-    pub fn doesnt_have_tags(&self, tags: Option<&[&str]>) -> bool {
-        tags.as_ref()
-            .is_some_and(|tags| tags.iter().any(|&t| !self.tags.contains(t)))
+    #[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
+    pub fn doesnt_match(&self, tags: Option<&TagFilter>) -> bool {
+        tags.as_ref().is_some_and(|tags| !tags.matches(&self.tags))
     }
 }
 
@@ -182,13 +186,17 @@ pub struct NormalizedTask {
 }
 
 impl NormalizedTask {
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn get_enabled_jobs<'proj>(
         &'proj self,
         task_loc: Loc<'proj, 'proj>,
+        tags: Option<&TagFilter>,
     ) -> impl Iterator<Item = Loc<'proj, 'proj>> {
         self.jobs.iter().enumerate().filter_map(move |(idx, job)| {
             let job_loc = task_loc.extend_job(idx);
-            if job.disabled {
+            if job.doesnt_match(tags) {
+                None
+            } else if job.disabled {
                 info!("{job_loc} is disabled");
                 None
             } else {
@@ -196,9 +204,9 @@ impl NormalizedTask {
             }
         })
     }
-    pub fn doesnt_have_tags(&self, tags: Option<&[&str]>) -> bool {
-        tags.as_ref()
-            .is_some_and(|tags| tags.iter().any(|&t| !self.tags.contains(t)))
+    #[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
+    pub fn doesnt_match(&self, tags: Option<&TagFilter>) -> bool {
+        tags.as_ref().is_some_and(|tags| !tags.matches(&self.tags))
     }
 }
 
@@ -264,28 +272,37 @@ impl NormalizedProject {
         Loc::new(self.name.as_str())
     }
 
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
     pub fn get_enabled_tasks_or_jobs<'proj>(
         &'proj self,
+        tags: Option<&TagFilter>,
     ) -> impl Iterator<Item = Loc<'proj, 'proj>> {
         let proj_loc = self.get_loc();
         let iter = self.tasks.iter().filter_map(move |(task_name, task)| {
             if task.disabled {
-                info!("{} is disabled", self.get_loc().extend_task(task_name));
+                if task.jobs.iter().any(|j| !j.doesnt_match(tags)) {
+                    // there is a job that wouldn't get filtered out
+                    info!("{} is disabled", self.get_loc().extend_task(task_name));
+                }
                 None
             } else if task.parallel {
                 Some(TaskOrJob::Job(
-                    task.get_enabled_jobs(proj_loc.extend_task(task_name)),
+                    task.get_enabled_jobs(proj_loc.extend_task(task_name), tags),
                 ))
+            } else if task.doesnt_match(tags) {
+                None
             } else {
                 Some(TaskOrJob::Task(proj_loc.extend_task(task_name)))
             }
         });
         TaskOrJobIter::new(iter)
     }
+
+    #[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
     pub fn list_independents(
         &self,
         skip_disabled: bool,
-        tags: Option<&[&str]>,
+        tags: Option<&TagFilter>,
     ) -> impl Iterator<
         Item = TaskOrJob<
             impl Iterator<Item = (Loc<'_, '_>, &NormalizedJob)>,
@@ -296,7 +313,7 @@ impl NormalizedProject {
         self.tasks.iter().filter_map(move |(task_name, task)| {
             let task_loc = proj_loc.extend_task(task_name);
             if (skip_disabled && (task.disabled || task.jobs.iter().all(|j| j.disabled)))
-                || (!task.parallel && task.doesnt_have_tags(tags))
+                || (!task.parallel && task.doesnt_match(tags))
             {
                 None
             } else if task.parallel {
@@ -305,7 +322,7 @@ impl NormalizedProject {
                     .iter()
                     .enumerate()
                     .filter_map(move |(job_num, job)| {
-                        if (skip_disabled && job.disabled) || job.doesnt_have_tags(tags) {
+                        if (skip_disabled && job.disabled) || job.doesnt_match(tags) {
                             None
                         } else {
                             let job_loc = task_loc.extend_job(job_num);
@@ -403,18 +420,22 @@ impl Project {
     }
     fn check_tag(tag: &str) -> io::Result<()> {
         if tag.is_empty() {
-            error!("empty string not be used as a tag");
+            error!("empty string should not be used as a tag");
             return Err(io::Error::other("found empty string tag in project"));
         }
-        if tag.starts_with('/') {
-            error!("tags should not beigin '/'");
+        if tag.starts_with(['/', '!']) {
+            error!("tags should not begin with '/' or '!'");
             return Err(io::Error::other(
-                "found tag in project that starts with '/'",
+                "found tag in project that starts with '/' or '!'",
             ));
         }
-        const RESERVED: [&str; 6] = ["none", "any", "all", "and", "or", "not"];
+        const RESERVED: [&str; 10] = [
+            "none", "any", "all", "and", "or", "not", "|", "||", "&", "&&",
+        ];
         if RESERVED.contains(&tag) {
-            error!("none, any, all, and, or, not are reserved and should not be used as tags");
+            error!(
+                "none, any, all, and, or, not, '||', '|', '&', '&&' are reserved and should not be used as tags"
+            );
             return Err(io::Error::other(format!(
                 "use a reserved word as a tag in project '{}'",
                 tag
@@ -422,10 +443,10 @@ impl Project {
         }
         if tag
             .chars()
-            .any(|c| c == ',' || c == 'y' || c == ')' || c.is_whitespace())
+            .any(|c| c == ',' || c == '(' || c == ')' || c == '"' || c == '\'' || c.is_whitespace())
         {
             error!(
-                "tags cannot contain commas, parentheses or whitespace characters, invalid tag \"{}\"",
+                "tags cannot contain commas, parentheses, quotes, or whitespace characters, invalid tag \"{}\"",
                 tag.escape_default()
             );
             return Err(io::Error::other(format!(

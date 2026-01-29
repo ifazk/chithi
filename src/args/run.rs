@@ -33,6 +33,10 @@ pub struct RunArgs {
     #[arg(long)]
     pub create_pid_files: bool,
 
+    /// Filters the jobs to run using tags
+    #[arg(long)]
+    pub tags: Option<String>,
+
     /// Name of project. The runner will look for a .toml file with this name in /etc/chithi/
     #[arg(long, default_value = "chithi")]
     pub project: String,

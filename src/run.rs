@@ -14,8 +14,9 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::spec::{Loc, NormalizedJob, Project, Seconds};
-use crate::{args::run::RunArgs, spec::RunConfig};
+use crate::args::run::RunArgs;
+use crate::args::tags::TagFilter;
+use crate::spec::{Loc, NormalizedJob, Project, RunConfig, Seconds};
 use log::{error, info};
 use std::collections::HashMap;
 use std::io;
@@ -32,6 +33,12 @@ pub fn main(args: RunArgs) -> io::Result<()> {
 
     let proj = Project::new(&args.project)?;
     let proj = proj.normalize(&args.project)?;
+
+    let tags = match args.tags.as_deref() {
+        Some(tags) => Some(TagFilter::parse(tags)?),
+        None => None,
+    };
+    let tags = tags.as_ref();
 
     let (task_maybe, job_maybe) = match args.task_or_job.as_deref() {
         Some(task_or_job) => {
@@ -74,7 +81,7 @@ pub fn main(args: RunArgs) -> io::Result<()> {
     let proj_loc = proj.get_loc();
 
     let parallel_jobs = match (task_maybe, job_maybe) {
-        (None, _) => proj.get_enabled_tasks_or_jobs().collect::<Vec<_>>(),
+        (None, _) => proj.get_enabled_tasks_or_jobs(tags).collect::<Vec<_>>(),
         (Some(task_name), None) => {
             // Task check
             let task_loc = proj_loc.extend_task(task_name);
@@ -86,14 +93,13 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 info!("not running disabled {task_loc}");
                 return Ok(());
             }
-            let all_disabled = task.jobs.iter().all(|j| j.disabled);
-            if task.jobs.len() != 1 && all_disabled {
-                // extra info when task jobs != 1 and there are no enabled jobs
+            let all_disabled = task.jobs.iter().all(|j| j.doesnt_match(tags) || j.disabled);
+            if all_disabled {
                 info!("no enabled jobs for {task_loc}");
             }
             if task.parallel {
                 // parallel (with config)
-                task.get_enabled_jobs(task_loc).collect()
+                task.get_enabled_jobs(task_loc, tags).collect()
             } else if args.no_run_config {
                 // sequential without config
                 if all_disabled {
@@ -114,7 +120,8 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                     }
                 };
                 for (job_num, job) in task.jobs.iter().enumerate() {
-                    if job.disabled {
+                    // seq should match tags, but keeping this here defensively
+                    if job.doesnt_match(tags) || job.disabled {
                         continue;
                     }
                     let status = job.run()?;
@@ -149,7 +156,8 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 };
                 proj.run_config.inital_delay(task_loc);
                 for (job_num, job) in task.jobs.iter().enumerate() {
-                    if job.disabled {
+                    // seq should match tags, but keeping this here defensively
+                    if job.doesnt_match(tags) || job.disabled {
                         continue;
                     }
                     let job_loc = task_loc.extend_job(job_num);
@@ -165,6 +173,10 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                 error!("could not find {task_loc}");
                 return Err(io::Error::other(format!("could not find {task_loc}")));
             };
+            if task.doesnt_match(tags) {
+                info!("{task_loc} filtered out by provided tags");
+                return Ok(());
+            }
             if task.disabled {
                 info!("not running disabled {task_loc}");
                 return Ok(());

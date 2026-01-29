@@ -22,6 +22,8 @@ pub mod list;
 #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
 pub mod run;
 pub mod sync;
+#[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
+pub mod tags;
 
 #[derive(Debug, Parser)]
 #[command(name = "chithi")]
