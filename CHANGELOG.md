@@ -17,6 +17,11 @@ changes between minor versions.
 - `chithi run` command for task runner
 - `chithi list` command for listing tasks and jobs
 
+### Fixed
+
+- The `--prune-format` options was not being used for bookmarks. This has now
+  been fixed.
+
 ## [0.1.1] - 2025-01-11
 
 ### Added
