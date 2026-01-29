@@ -160,3 +160,45 @@ target = "onsite/home/user1"
 source = "tank/home/user2"
 target = "onsite/home/user2"
 ```
+
+## Adding tags to tasks and jobs
+
+Tags can be added at both tasks and jobs, but there is a restriction. A
+sequential task with more than 1 job, can only have tags at the task level.
+
+Tags at the task level are inherited by tasks at the job level.
+
+Tags can be used by the `list` and `run` commands to filter out which tasks or
+jobs to list or run. The `--tags=none` option can be used to list or run jobs or
+tasks which have no tags.
+
+```toml
+command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]
+# There are *no* tags at the project level.
+
+[task.home]
+tags = ["daily"]
+parallel = true
+[[task.home.job]]
+source = "tank/home/user1"
+target = "onsite/home/user1"
+# This job has tags daily and weekly
+tags = ["weekly"]
+[[task.home.job]]
+source = "tank/home/user2"
+target = "onsite/home/user2"
+# This job has tags daily and monthly
+tags = ["monthly"]
+
+[[task.backups.job]]
+# This job/task has no tags
+source = "tank/backups"
+target = "onsite/backups"
+
+[[task.other.job]]
+# This is a sequential task, but tags are allowed at the job level since there
+# is only one job
+tags = ["daily"]
+source = "tank/other"
+target = "onsite/other"
+```

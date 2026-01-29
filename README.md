@@ -1,4 +1,4 @@
-# Chithi (চিঠি)
+# Chithi
 OpenZFS replication tool.
 
 # Port of syncoid to Rust

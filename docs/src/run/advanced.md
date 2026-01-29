@@ -86,20 +86,3 @@ command = ["timeout", "6h", "sh", "-c", "chithi sync -r --no-sync-snap --target-
 ```
 
 However, timeout has wierd interactions with restarts. If `timeout 6h` is used with restarts.
-
-### Will the runner ever get a timeout feature that works with restarts?
-
-At least not a built-in timeout. There are a few architectural decisions at play.
-
-1. The project does implement any signal handlers. We prefer to keep signal
-   behaviour completely predictable.
-2. The chithi project does not write platform specific code for Linux and
-   FreeBSD.
-3. Unix/POSIX does not have good ways of waiting on child programs to finish and
-   on a timer at the same time (without using signal handlers).
-
-There are things we could do, such as use the timeout command itself, and run
-commands in a `sh` shell automatically, and keeping track of time elapsed, etc,
-but at I'm currently unwilling to have the runner depend on an external program,
-and I'm currently also unwilling to just implement a timeout command in chithi
-just to not depend on an external program.

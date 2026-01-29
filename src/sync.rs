@@ -1806,12 +1806,25 @@ where {
                     };
                     let source_bookmarks =
                         source_bookmarks_maybe.as_ref().expect("set to some above");
+                    let bookmark_prefixes = self
+                        .args
+                        .prune_formats
+                        .iter()
+                        .map(|format| {
+                            format!(
+                                "{format}_{}{hostname}",
+                                self.args.identifier.as_deref().unwrap_or_default()
+                            )
+                        })
+                        .collect::<Vec<_>>();
                     let source_bookmarks = source_bookmarks
                         .iter()
                         .filter(|b| {
-                            b.name
-                                .strip_prefix(&bookmark_prefix)
-                                .is_some_and(|s| s.starts_with('_'))
+                            bookmark_prefixes.iter().any(|bookmark_prefix| {
+                                b.name
+                                    .strip_prefix(bookmark_prefix)
+                                    .is_some_and(|s| s.starts_with('_'))
+                            })
                         })
                         .collect::<Vec<_>>();
                     let bookmarks_to_delete = if source_bookmarks.len() < to_keep {
