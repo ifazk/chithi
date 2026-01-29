@@ -17,10 +17,12 @@
 - [Expert Use Cases](./run/advanced.md)
 - [`list` command](./list/list.md)
 
+# Misc Scripts
+
+- [`chithi-systemd`](./systemd/systemd.md)
+
 <!-- # Status Checks -->
 
 <!-- # Cron Manager -->
-
-<!-- # Systemd Manager -->
 
 <!-- # Reference -->

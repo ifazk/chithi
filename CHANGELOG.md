@@ -16,6 +16,7 @@ changes between minor versions.
 - `chithi-run` task runner binary
 - `chithi run` command for task runner
 - `chithi list` command for listing tasks and jobs
+- `chithi-systemd` plugin for daily scheduling using systemd
 
 ### Fixed
 

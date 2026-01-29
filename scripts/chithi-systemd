@@ -1,0 +1,273 @@
+#!/bin/sh
+
+#  Chithi: OpenZFS replication tools
+#  Copyright (C) 2025-2026  Ifaz Kabir
+
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+usage() {
+  cat <<EOF
+Usage: $0 [-h|--help] [--project PROJECT] [--all | --failed | --state STATE] <COMMAND>
+
+Commands:
+  init                   Initialize systemd service and timer files
+  destroy                Clear any existing timers and delete project service and timer files
+  clear                  Clear any existing timers
+  list                   List current timers for project
+  reload                 Enable all timers for project
+  start                  Start the systemd services (works without reload)
+  status                 Show the status of the systemd services
+  stop                   Stop any currently running services for project
+
+Options:
+  -h, --help             Show this help message
+      --project PROJECT  Apply command to the project PROJECT [default: chithi]
+      --all              Shows all services and timers for list and status commands [default]
+      --failed           Shows services and timers that failed for list and status commands
+      --state STATE      Filters the output of the list and status commands by state
+EOF
+  exit $1
+}
+
+#############
+# Variables #
+#############
+
+PROJECT=chithi
+STATE=--all
+UNIT=chithi-run
+
+#############
+# Utilities #
+#############
+
+set_unit() {
+  case $1 in
+    chithi)
+      UNIT=chithi-run
+      ;;
+    *)
+      UNIT=chithi-run-${1}
+      ;;
+  esac
+}
+
+ensure_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "[ERROR] Command must be run as root. Did you forget to prefix with sudo?" >&2
+    exit 1
+  fi
+}
+
+############
+# Commands #
+############
+
+init() {
+  set -e
+  ensure_root
+
+  echo Creating ${UNIT}@.service
+  cat >/etc/systemd/system/${UNIT}@.service <<EOF
+[Unit]
+Description=Chithi Run %i
+Requires=local-fs.target
+After=local-fs.target
+StartLimitBurst=5
+StartLimitIntervalSec=12h
+
+[Service]
+Type=simple
+EOF
+  echo "ExecStart=/usr/sbin/chithi run --project ${PROJECT} --no-run-config %i" >> /etc/systemd/system/${UNIT}@.service
+  cat >>/etc/systemd/system/${UNIT}@.service <<EOF
+Restart=on-failure
+RestartSec=5min
+EOF
+
+  echo Creating ${UNIT}@.timer
+  cat >/etc/systemd/system/${UNIT}@.timer <<EOF
+[Unit]
+Description=Cithi Run %i
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  echo Systemd daemon-reload
+  systemctl daemon-reload
+
+  echo Run the following command to schedule tasks and jobs in project ${PROJECT}
+  echo
+  if [ ${PROJECT} = "chithi" ]; then
+    echo "   " sudo chithi systemd reload
+  else
+    echo "   " sudo chithi systemd --project ${PROJECT} reload
+  fi
+  echo
+}
+
+clear_timers() {
+  ensure_root
+
+  echo Clearing timers
+  list
+
+  for i in $(systemctl list-units -t timer --plain --full --no-pager --output=json "${UNIT}@*.timer" | jq -r '.[].unit'); do
+    systemctl disable --now $i
+  done
+}
+
+destroy() {
+  set -e
+  ensure_root
+  clear_timers
+  echo Deleting /etc/systemd/system/${UNIT}@.timer /etc/systemd/system/${UNIT}@.service
+  rm /etc/systemd/system/${UNIT}@.timer /etc/systemd/system/${UNIT}@.service
+  echo Systemd daemon-reload
+  systemctl daemon-reload
+}
+
+list() {
+  systemctl list-units -t timer --plain --full --no-pager ${STATE} --output=json "${UNIT}@*.timer" | jq -r '.[].unit'
+}
+
+reload() {
+  set -e
+  ensure_root
+
+  for i in $(systemctl list-units -t timer --plain --full --no-pager --output=json "${UNIT}@*.timer" | jq -r '.[].unit'); do
+    systemctl disable $i --now
+  done
+  for i in $(chithi list --project ${PROJECT}); do
+    systemctl enable ${UNIT}@$i.timer --now
+  done
+
+  echo For a one-off run of the enabled services run the following command
+  echo
+  if [ ${PROJECT} = "chithi" ]; then
+    echo "   " sudo chithi systemd start
+  else
+    echo "   " sudo chithi systemd --project ${PROJECT} start
+  fi
+  echo
+}
+
+start() {
+  ensure_root
+  for i in $(chithi list --project ${PROJECT}); do
+    systemctl start ${UNIT}@$i.service
+  done
+}
+
+status() {
+  ensure_root
+  systemctl status --no-pager ${STATE} "${UNIT}@*.service"
+}
+
+stop() {
+  ensure_root
+  for i in $(systemctl list-units -t service --plain --full --no-pager --output=json "${UNIT}@*.service" | jq -r '.[].unit'); do
+    systemctl stop $i
+  done
+}
+
+########
+# Main #
+########
+
+while :; do
+  case $1 in
+    -h|--help)
+      usage 0
+      ;;
+    --project)
+      if [ -n $2 ]; then
+        usage 1
+      else
+        PROJECT=$2
+        set_unit ${PROJECT}
+        shift
+        shift
+      fi
+      ;;
+    --project=)
+      usage 1
+      ;;
+    --project=?*)
+      PROJECT=${1#*=}
+      shift
+      ;;
+    --state)
+      if [ -n $2 ]; then
+        usage 1
+      else
+        STATE=--state=$2
+        shift
+        shift
+      fi
+      ;;
+    --state=)
+      usage 1
+      ;;
+    --state=?*)
+      STATE=${1}
+      shift
+      ;;
+    --all)
+      STATE=${1}
+      shift
+      ;;
+    --failed)
+      STATE=${1}
+      shift
+      ;;
+    init)
+      init
+      exit 0
+      ;;
+    destroy)
+      destroy
+      exit 0
+      ;;
+    clear)
+      clear_timers
+      exit 0
+      ;;
+    list)
+      list
+      exit 0
+      ;;
+    reload)
+      reload
+      exit 0
+      ;;
+    start)
+      start
+      exit 0
+      ;;
+    status)
+      status
+      exit 0
+      ;;
+    *)
+      usage 1
+      ;;
+  esac
+done

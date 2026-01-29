@@ -47,6 +47,9 @@ following (requires [list command](../list/list.md)).
 for i in $(chithi list); do sudo systemctl enable chithi-run@$i.timer --now; done
 ```
 
+We also provide the [`chithi-systemd`](../systemd/systemd.md) script for simple
+daily schedules.
+
 ## Calling from cron
 
 When calling the runner using cron, it may be necessary to stop multiple
