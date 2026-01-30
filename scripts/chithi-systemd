@@ -47,6 +47,7 @@ EOF
 PROJECT=chithi
 STATE=--all
 UNIT=chithi-run
+COMMAND=
 
 #############
 # Utilities #
@@ -66,6 +67,13 @@ set_unit() {
 ensure_root() {
   if [ "$(id -u)" -ne 0 ]; then
     echo "[ERROR] Command must be run as root. Did you forget to prefix with sudo?" >&2
+    exit 1
+  fi
+}
+
+ensure_command_unset() {
+  if [ -n "${COMMAND}" ]; then
+    echo "[ERROR] Only one command is allowed" >&2
     exit 1
   fi
 }
@@ -192,13 +200,14 @@ stop() {
 # Main #
 ########
 
-while :; do
+while [ "$#" -ne 0 ]; do
   case $1 in
     -h|--help)
       usage 0
       ;;
     --project)
       if [ -n $2 ]; then
+        echo "[ERROR] Project missing after --project" >&2
         usage 1
       else
         PROJECT=$2
@@ -216,6 +225,7 @@ while :; do
       ;;
     --state)
       if [ -n $2 ]; then
+        echo "[ERROR] State missing after --state" >&2
         usage 1
       else
         STATE=--state=$2
@@ -239,35 +249,69 @@ while :; do
       shift
       ;;
     init)
-      init
-      exit 0
+      ensure_command_unset
+      COMMAND=init
+      shift
       ;;
     destroy)
-      destroy
-      exit 0
+      ensure_command_unset
+      COMMAND=destroy
+      shift
       ;;
     clear)
-      clear_timers
-      exit 0
+      ensure_command_unset
+      COMMAND=clear
+      shift
       ;;
     list)
-      list
-      exit 0
+      ensure_command_unset
+      COMMAND=list
+      shift
       ;;
     reload)
-      reload
-      exit 0
+      ensure_command_unset
+      COMMAND=reload
+      shift
       ;;
     start)
-      start
-      exit 0
+      ensure_command_unset
+      COMMAND=start
+      shift
       ;;
     status)
-      status
-      exit 0
+      ensure_command_unset
+      COMMAND=status
+      shift
       ;;
     *)
       usage 1
       ;;
   esac
 done
+
+case ${COMMAND} in
+  init)
+    init
+    ;;
+  destroy)
+    destroy
+    ;;
+  clear)
+    clear_timers
+    ;;
+  list)
+    list
+    ;;
+  reload)
+    reload
+    ;;
+  start)
+    start
+    ;;
+  status)
+    status
+    ;;
+  *)
+    usage 1
+    ;;
+esac
