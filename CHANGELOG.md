@@ -24,6 +24,8 @@ changes between minor versions.
 
 - The `--prune-format` options was not being used for bookmarks. This has now
   been fixed.
+- Clone handling now replicates in dependency order, and checks that
+  excluded parent datasets exist before starting replication
 
 ## [0.1.1] - 2025-01-11
 

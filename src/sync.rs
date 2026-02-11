@@ -23,6 +23,7 @@ use crate::zfs::{Creation, IntermediateSource, Snapshot, SnapshotInfo};
 use crate::{Cmd, CmdTarget, Fs, Role, Sequence, get_is_roots};
 use log::{debug, error, info, trace, warn};
 use regex_lite::Regex;
+use std::ops::Deref;
 use std::process::ExitStatus;
 use std::{
     cell::LazyCell,
@@ -2008,21 +2009,29 @@ pub fn main(args: SyncArgs) -> io::Result<()> {
                 "--skip-parent is set, but the target parent dataset does not exist",
             ));
         }
-        let mut deferred = Vec::new();
-        for (fs, child_target) in datasets.iter().zip(targets.iter()) {
-            if args.clone_handling()
-                && child_target.origin.is_some()
-                && targets
-                    .iter()
-                    .any(|target| Some(target.fs.as_ref()) == child_target.origin_dataset())
-            {
-                deferred.push((fs, child_target));
-            } else {
+        if args.clone_handling() {
+            let (sorted, must_exist) = target.topological_sort(&targets);
+            for dataset in must_exist {
+                let target_dataset = Fs::new(args.target_host.as_deref(), dataset, Role::Target);
+                if !(cmds.target_exists(&target_dataset)?) {
+                    error!(
+                        "clone handling expects {} to exist in target, but it was not found",
+                        target_dataset.fs.deref()
+                    );
+                    return Err(io::Error::other(
+                        "could not find target dataset needed for clone handling",
+                    ));
+                }
+            }
+            for idx in sorted {
+                let fs = &datasets[idx];
+                let child_target = &targets[idx];
                 cmds.sync_dataset(fs, child_target, false)?;
             }
-        }
-        for (fs, child_target) in deferred {
-            cmds.sync_dataset(fs, child_target, false)?;
+        } else {
+            for (fs, child_target) in datasets.iter().zip(targets.iter()) {
+                cmds.sync_dataset(fs, child_target, false)?;
+            }
         }
     }
 

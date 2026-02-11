@@ -15,7 +15,14 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use libc::getuid;
-use std::{borrow::Cow, fmt::Display, io};
+use log::info;
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    io,
+    ops::Deref,
+};
 
 /// For syncing filesystems/datasets have a notion of being a source dataset or a target
 #[derive(Debug, Clone, Copy)]
@@ -140,6 +147,180 @@ impl<'args> Fs<'args> {
         self.origin
             .as_deref()
             .and_then(|s| s.split_once('@').map(|split| split.0))
+    }
+    pub fn strip_parent_from<'a>(&self, child: &'a str) -> Option<&'a str> {
+        child
+            .strip_prefix(self.fs.as_ref())
+            .map(|without_prefix| without_prefix.strip_prefix('/').unwrap_or(without_prefix))
+    }
+    /// self.fs shouldn't have leading or trailing /, and neither should child_datasets.
+    /// child datasets should also not have double / anywhere.
+    /// child datasets should have prefix self.fs.
+    /// Returns:
+    /// 1. the topologically sorted indices of child_datasets
+    /// 2. any datasets that are excluded but needs to exist for successful cloning
+    pub fn topological_sort<'a, 'b: 'a>(
+        &self, // parent
+        child_datasets: &'a Vec<Fs<'b>>,
+    ) -> (Vec<usize>, HashSet<&'a str>) {
+        #[derive(Debug)]
+        struct Trie<'a> {
+            index: Option<usize>,
+            dataset: &'a str,
+            children: HashMap<&'a str, Box<Self>>,
+        }
+        impl<'a> Trie<'a> {
+            fn get_datasets_and_components<'c>(
+                parent: &str,
+                child: &'c str,
+            ) -> Vec<(&'c str, &'c str)> {
+                if parent == child {
+                    return vec![(child, "")];
+                }
+                // we expect child datasets to have parent prefix
+                let mut after_prefix = parent.len();
+                // removing prefix might leave a leading /
+                let bytes = child.as_bytes();
+                // don't need length check because we returned early if parent
+                // equals child and we expect child to have parent as prefix
+                if bytes[after_prefix] == b'/' {
+                    after_prefix += 1;
+                };
+                let mut res = Vec::new();
+                let mut component_start = after_prefix;
+                for idx in after_prefix..child.len() {
+                    if bytes[idx] == b'/' {
+                        res.push((&child[..idx], &child[component_start..idx]));
+                        component_start = idx + 1;
+                    }
+                }
+                res.push((child, &child[component_start..]));
+                res
+            }
+            /// Inserts and returns the node
+            fn insert_str(&mut self, parent: &str, child_dataset: &'a str) -> &mut Self {
+                let mut res = self;
+                for child in Self::get_datasets_and_components(parent, child_dataset) {
+                    res = res.get_or_insert(child)
+                }
+                res
+            }
+            fn get_or_insert<'b>(&'b mut self, child: (&'a str, &'a str)) -> &'b mut Self {
+                let (dataset, component) = child;
+                if component.is_empty() {
+                    return self;
+                }
+                self.children.entry(component).or_insert_with(|| {
+                    Box::new(Self {
+                        index: None,
+                        dataset: dataset,
+                        children: HashMap::new(),
+                    })
+                })
+            }
+            fn get_str<'b>(&'b self, parent: &str, child: &str) -> Option<&'b Self> {
+                let mut current = self;
+                for (_child, component) in Self::get_datasets_and_components(parent, child) {
+                    if let Some(next) = current.children.get(component) {
+                        current = next
+                    } else {
+                        return None;
+                    }
+                }
+                Some(current)
+            }
+        }
+        let mut root = if child_datasets.is_empty() {
+            return (Vec::new(), HashSet::new());
+        } else {
+            // borrow from first element to get correct lifetime
+            // we expect child to have parent as prefix
+            let dataset = &child_datasets[0].fs.deref()[..self.fs.len()];
+            Trie {
+                index: None,
+                dataset,
+                children: HashMap::new(),
+            }
+        };
+        // Insert child datasets
+        for idx in 0..child_datasets.len() {
+            root.insert_str(&self.fs, &child_datasets[idx].fs).index = Some(idx)
+        }
+        // Keep track of datasets that must exist
+        let mut must_exist: HashSet<&'a str> = HashSet::new();
+        // Build graph for topological sort
+        let graph = {
+            let mut graph = vec![HashSet::new(); child_datasets.len()];
+            // DFS trie to add parent-child dependency edges
+            let mut stack = Vec::new();
+            stack.push((&root, 0usize));
+            let mut parents: Vec<(usize, usize)> = Vec::new();
+            while let Some((node, d)) = stack.pop() {
+                // remove siblings and their desendents from parents stack
+                while parents.last().is_some_and(|(_, sibling_d)| *sibling_d >= d) {
+                    parents.pop();
+                }
+                // process this node
+                if let Some(((from, _), to)) = parents.last().zip(node.index) {
+                    graph[*from].insert(to);
+                }
+                // add self as parent
+                if let Some(idx) = node.index {
+                    parents.push((idx, d));
+                } else {
+                    must_exist.insert(node.dataset);
+                }
+                // add children to stack
+                for (_, node) in &node.children {
+                    stack.push((node.deref(), d + 1));
+                }
+            }
+            for to in 0..child_datasets.len() {
+                if let Some(origin_dataset) = child_datasets[to].origin_dataset() {
+                    if let Some(from) = root.get_str(&self.fs, origin_dataset).and_then(|t| t.index)
+                    {
+                        graph[from].insert(to);
+                    } else {
+                        info!(
+                            "origin {origin_dataset} was excluded from sync, clone sync will fallback to full sync if {origin_dataset} does not exist in target"
+                        );
+                    };
+                }
+            }
+            graph
+        };
+        // DFS graph for topological sort
+        // We don't need to do any cycle detection because zfs can't create
+        // clones/parent-child datesets in cycles
+        let sorted = {
+            let mut sorted = Vec::with_capacity(child_datasets.len());
+            let mut seen = vec![false; child_datasets.len()];
+            let mut stack = Vec::new();
+            let mut finished = Vec::new();
+            for idx in 0..child_datasets.len() {
+                if !seen[idx] {
+                    stack.push(idx);
+                    finished.push(idx);
+                    seen[idx] = true;
+                }
+                while let Some(idx) = stack.pop() {
+                    for &idx in graph[idx].iter() {
+                        if !seen[idx] {
+                            stack.push(idx);
+                            finished.push(idx);
+                            seen[idx] = true;
+                        }
+                    }
+                }
+                while let Some(idx) = finished.pop() {
+                    sorted.push(idx);
+                }
+            }
+            sorted.reverse();
+            sorted
+        };
+
+        (sorted, must_exist)
     }
 }
 
@@ -307,5 +488,62 @@ mod tests {
         );
         assert_eq!(host, Some("user:wierduser@host:wierdhost"));
         assert_eq!(fs, "poolnothost:alsopool/filesystem:alsofs");
+    }
+}
+
+#[cfg(test)]
+mod test_topological {
+    use super::*;
+
+    #[test]
+    fn simple_linear() {
+        let parent = Fs::new(None, "parent", Role::Target);
+        let parent_copy = Fs::new(None, "parent", Role::Target);
+        let child = Fs::new(None, "parent/child", Role::Target);
+        let grand_child = Fs::new(None, "parent/child/grand_child", Role::Target);
+        let unsorted = vec![grand_child, child, parent_copy];
+        let (sorted, exists) = parent.topological_sort(&unsorted);
+        assert!(exists.is_empty());
+        assert_eq!(sorted, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn simple_linear_2() {
+        let parent = Fs::new(None, "parent", Role::Target);
+        let parent_copy = Fs::new(None, "parent", Role::Target);
+        let child = Fs::new(None, "parent/child", Role::Target);
+        let grand_child = Fs::new(None, "parent/child/grand_child", Role::Target);
+        let unsorted = vec![parent_copy, child, grand_child];
+        let (sorted, exists) = parent.topological_sort(&unsorted);
+        assert!(exists.is_empty());
+        assert_eq!(sorted, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn simple_cloned() {
+        let parent = Fs::new(None, "parent", Role::Target);
+        let parent_copy = Fs::new(None, "parent", Role::Target);
+        let child = Fs::new(None, "parent/child", Role::Target);
+        let mut cloned = Fs::new(None, "parent/cloned", Role::Target);
+        cloned.origin = Some("parent/child@snap".to_string());
+        let grand_child = Fs::new(None, "parent/child/grand_child", Role::Target);
+        let unsorted = vec![parent_copy, cloned, child, grand_child];
+        let (sorted, exists) = parent.topological_sort(&unsorted);
+        assert!(exists.is_empty());
+        assert!(sorted == vec![0, 2, 1, 3] || sorted == vec![0, 2, 3, 1]);
+    }
+
+    #[test]
+    fn clone_in_sibling() {
+        let parent = Fs::new(None, "parent", Role::Target);
+        let parent_copy = Fs::new(None, "parent", Role::Target);
+        let child_1 = Fs::new(None, "parent/child1", Role::Target);
+        let mut clone = Fs::new(None, "parent/child1/clone", Role::Target);
+        clone.origin = Some("parent/child2@snap".to_string());
+        let child_2 = Fs::new(None, "parent/child2", Role::Target);
+        let unsorted = vec![parent_copy, child_1, clone, child_2];
+        let (sorted, exists) = parent.topological_sort(&unsorted);
+        assert!(exists.is_empty());
+        assert!(sorted == vec![0, 1, 3, 2] || sorted == vec![0, 3, 1, 2]);
     }
 }
