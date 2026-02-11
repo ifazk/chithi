@@ -1903,10 +1903,14 @@ pub fn main(args: SyncArgs) -> io::Result<()> {
     // Much nicer to fail here than fail with an invalid name
     if source.fs.starts_with('/') {
         error!("source dataset cannot start with a leading /");
+    } else if source.fs.starts_with('/') {
+        error!("source dataset cannot end with a trailing /");
     } else if source.fs.is_empty() {
         error!("source dataset cannot be empty");
     } else if target.fs.starts_with('/') {
         error!("target dataset cannot start with a leading /");
+    } else if target.fs.ends_with('/') {
+        error!("target dataset cannot end with a trailing /");
     } else if target.fs.is_empty() {
         error!("target dataset cannot be empty");
     }
