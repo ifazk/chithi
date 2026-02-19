@@ -20,7 +20,6 @@ use crate::spec::{Loc, NormalizedJob, Project, RunConfig, Seconds};
 use log::{error, info};
 use std::collections::HashMap;
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
@@ -57,7 +56,7 @@ pub fn main(args: RunArgs) -> io::Result<()> {
         None => (None, None),
     };
 
-    // The runner does one of a fews things:
+    // The runner does one of a few things:
     // 1. Run every task in a project if there's no task provided
     // 2. Run a single sequential task with or without run config
     // 3. Run a parallel task with run config
@@ -124,15 +123,8 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                     if job.doesnt_match(tags) || job.disabled {
                         continue;
                     }
-                    let status = job.run()?;
-                    if !status.success() {
-                        let job_loc = task_loc.extend_job(job_num);
-                        error!("{job_loc} exited with {}", status);
-                        return Err(io::Error::other(format!(
-                            "{job_loc} exited with {}",
-                            status
-                        )));
-                    }
+                    let job_loc = task_loc.extend_job(job_num);
+                    run_job_no_config(job_loc, job)?
                 }
                 return Ok(());
             } else {
@@ -154,7 +146,7 @@ pub fn main(args: RunArgs) -> io::Result<()> {
                         Err(e) => return Err(e),
                     }
                 };
-                proj.run_config.inital_delay(task_loc);
+                proj.run_config.initial_delay(task_loc);
                 for (job_num, job) in task.jobs.iter().enumerate() {
                     // seq should match tags, but keeping this here defensively
                     if job.doesnt_match(tags) || job.disabled {
@@ -221,23 +213,22 @@ pub fn main(args: RunArgs) -> io::Result<()> {
             };
             // Job run
             if args.no_run_config {
-                let err = job.get_command().exec();
-                error!("running {job_loc} failed with {err}");
-                return Err(err);
+                return run_job_no_config(job_loc, job);
             } else {
-                proj.run_config.inital_delay(job_loc);
+                proj.run_config.initial_delay(job_loc);
                 return run_job_with_config(&proj.run_config, job_loc, job);
             }
         }
     };
 
     let mut job_handles = HashMap::new();
+    let mut task_success_pending = HashMap::new();
 
     let (program, add_run): (std::ffi::OsString, _) = match std::env::current_exe() {
         Ok(path)
-            if path.file_name().is_some()
-                && (path.file_name().unwrap() == "chithi"
-                    || path.file_name().unwrap() == "chithi-run") =>
+            if path
+                .file_name()
+                .is_some_and(|file_name| file_name == "chithi" || file_name == "chithi-run") =>
         {
             let add_run = path.file_name().unwrap() == "chithi";
             (path.into(), add_run)
@@ -267,10 +258,16 @@ pub fn main(args: RunArgs) -> io::Result<()> {
         } else {
             error!("internal error: did not find task name in job list");
         }
+        cmd.stdin(Stdio::null());
         match cmd.spawn() {
             Ok(handle) => {
                 let id = handle.id();
-                job_handles.insert(id, handle);
+                let task = j.task_name.unwrap_or_default();
+                if proj.tasks.get(task).is_some_and(|t| t.on_success.is_some()) {
+                    let entry = task_success_pending.entry(task).or_insert(0usize);
+                    *entry += 1;
+                }
+                job_handles.insert(id, (handle, Some(j)));
             }
             Err(e) => {
                 error!("could not recursively start {j}: {e}");
@@ -281,17 +278,52 @@ pub fn main(args: RunArgs) -> io::Result<()> {
     while !job_handles.is_empty() {
         let id = waitid_all()? as u32;
         match job_handles.remove(&id) {
-            Some(mut handle) => {
-                handle.wait()?;
+            Some((mut handle, loc)) => {
+                let success = handle.wait()?.success();
+                if let Some(loc) = loc {
+                    let task = loc.task_name.unwrap_or_default();
+                    if !success {
+                        task_success_pending.remove(task);
+                    } else if task_success_pending.get_mut(task).is_some_and(|pending| {
+                        *pending -= 1;
+                        *pending == 0
+                    }) {
+                        task_success_pending.remove(task);
+                        if let Some(task) = proj.tasks.get(task)
+                            && let Some(handle) = task.spawn_on_success()
+                        {
+                            job_handles.insert(handle.id(), (handle, None));
+                        }
+                    }
+                }
             }
             None => {
                 error!("unregistered child {id} exited, giving up");
-                return Err(io::Error::other("unregisted child exited"));
+                return Err(io::Error::other("unregistered child exited"));
             }
         };
     }
 
     Ok(())
+}
+
+pub fn run_job_no_config(job_loc: Loc, job: &NormalizedJob) -> io::Result<()> {
+    match job.run() {
+        Ok(e) if e.success() => {
+            job.run_on_success();
+            Ok(())
+        }
+        Ok(e) => {
+            error!("{job_loc} exited with {e}");
+            Err(io::Error::other(format!("{job_loc} exited with {e}")))
+        }
+        Err(e) => {
+            error!("running {job_loc} failed with {e}, giving up");
+            Err(io::Error::other(format!(
+                "running {job_loc} failed with {e}, giving up"
+            )))
+        }
+    }
 }
 
 pub fn run_job_with_config(
@@ -304,6 +336,7 @@ pub fn run_job_with_config(
         command.stdin(Stdio::null());
         match command.status() {
             Ok(e) if e.success() => {
+                job.run_on_success();
                 return Ok(());
             }
             Ok(e) => {

@@ -14,7 +14,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::error;
+use log::{error, warn};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -30,6 +30,8 @@ use std::process::{Command, ExitStatus, Stdio};
 #[derive(Deserialize)]
 pub struct Job {
     pub command: Option<Vec<String>>,
+    #[serde(rename = "on-success")]
+    pub on_success: Option<Vec<String>>,
     #[serde(default)]
     pub disabled: bool,
     #[serde(default)]
@@ -50,6 +52,8 @@ pub struct Task {
     pub parallel: bool,
     #[serde(rename = "job")]
     pub jobs: Vec<Job>,
+    #[serde(rename = "on-success")]
+    pub on_success: Option<Vec<String>>,
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -57,7 +61,7 @@ pub struct Task {
 #[derive(Deserialize, Default)]
 pub struct RunConfig {
     #[serde(rename = "max-initial-delay-secs")]
-    pub max_inital_delay_secs: Option<u16>,
+    pub max_initial_delay_secs: Option<u16>,
     #[serde(rename = "max-restarts")]
     pub max_restart_count: Option<u8>,
     #[serde(default, rename = "restart-delay-secs")]
@@ -80,9 +84,9 @@ impl RunConfig {
         }
     }
     #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
-    pub fn inital_delay(&self, loc: Loc) {
+    pub fn initial_delay(&self, loc: Loc) {
         // Initial delay
-        if let Some(delay) = self.max_inital_delay_secs {
+        if let Some(delay) = self.max_initial_delay_secs {
             let secs = rand::random_range(0..delay);
             if secs > 0 {
                 info!("delaying {loc} by {}", Seconds(secs));
@@ -149,6 +153,7 @@ pub struct Project {
 
 pub struct NormalizedJob {
     pub command: Vec<String>,
+    pub on_success: Option<Vec<String>>,
     pub disabled: bool,
     pub source: Option<String>,
     pub target: Option<String>,
@@ -172,6 +177,16 @@ impl NormalizedJob {
     pub fn run(&self) -> io::Result<ExitStatus> {
         self.get_command().stdin(Stdio::null()).status()
     }
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
+    pub fn run_on_success(&self) {
+        if let Some(on_success) = &self.on_success {
+            let mut command = Command::new(&on_success[0]);
+            command.args(&on_success[1..]);
+            if let Err(e) = command.stdin(Stdio::null()).status() {
+                warn!("running on-success command failed with {e}");
+            }
+        }
+    }
     #[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
     pub fn doesnt_match(&self, tags: Option<&TagFilter>) -> bool {
         tags.as_ref().is_some_and(|tags| !tags.matches(&self.tags))
@@ -181,6 +196,7 @@ impl NormalizedJob {
 pub struct NormalizedTask {
     pub disabled: bool,
     pub parallel: bool,
+    pub on_success: Option<Vec<String>>,
     pub jobs: Vec<NormalizedJob>,
     pub tags: HashSet<String>,
 }
@@ -207,6 +223,23 @@ impl NormalizedTask {
     #[cfg(any(feature = "run-bin", feature = "run-bundle", feature = "list"))]
     pub fn doesnt_match(&self, tags: Option<&TagFilter>) -> bool {
         tags.as_ref().is_some_and(|tags| !tags.matches(&self.tags))
+    }
+    #[cfg(any(feature = "run-bin", feature = "run-bundle"))]
+    pub fn spawn_on_success(&self) -> Option<std::process::Child> {
+        if let Some(on_success) = &self.on_success {
+            let mut command = Command::new(&on_success[0]);
+            command.args(&on_success[1..]);
+            command.stdin(Stdio::null());
+            match command.spawn() {
+                Ok(handle) => Some(handle),
+                Err(e) => {
+                    warn!("on success command failed with {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -391,12 +424,17 @@ impl Project {
                         error!("jobs in sequential tasks with more than 1 job should not have tags, tag set for {job_loc}");
                         return Err(io::Error::other(format!("jobs in sequential tasks with more than 1 job should not have tags, tag set for {job_loc}")));
                     };
+                    if task.parallel && task.on_success.is_some() && !job.tags.is_empty() {
+                        error!("jobs in parallel tasks with an on-success command should not have tags, tag set for {job_loc}");
+                        return Err(io::Error::other(format!("jobs in parallel tasks with an on-success command should not have tags, tag set for {job_loc}")));
+                    }
                     job.tags.extend_from_slice(&task.tags);
                     Ok(NormalizedJob {
                         command,
                         disabled: job.disabled || task_disabled,
                         source: job.source,
                         target: job.target,
+                        on_success: job.on_success,
                         tags: job.tags.into_iter().collect(),
                     })
                 } else {
@@ -407,6 +445,7 @@ impl Project {
             Ok((task_name, NormalizedTask {
                             disabled: task_disabled,
                             parallel: task.parallel,
+                            on_success: task.on_success,
                             jobs,
                             tags: task.tags.into_iter().collect(),
                         }))

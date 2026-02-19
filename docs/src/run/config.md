@@ -202,3 +202,57 @@ tags = ["daily"]
 source = "tank/other"
 target = "onsite/other"
 ```
+
+## Adding on-success commands to tasks and jobs
+
+An on-success command in a command that runs after a task or job succeeds.
+
+On-success commands can be added at both tasks and jobs, but there are some
+restrictions. For parallel tasks, the task can only have an on-success command
+if the jobs in the task do not have tags.
+
+Theres no error tracking for on-success commands. Failures are ignored.
+
+```toml
+command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]
+# There are *no* tags at the project level.
+
+[task.home]
+# Since there is a tag on the task, using the tag will trigger the on-success
+# command for the task if all enabled jobs in the task succeed
+tags = ["daily"]
+parallel = true
+on-success = ["echo", "home", "ran", "successfully"]
+[[task.home.job]]
+source = "tank/home/user1"
+target = "onsite/home/user1"
+# You can have on-success on both the task and jobs in the task simultaneously.
+on-success = ["echo", "home/user1", "ran", "successfully"]
+[[task.home.job]]
+source = "tank/home/user2"
+target = "onsite/home/user2"
+
+[task.backups]
+tags = ["daily"]
+on-success = ["echo", "backups", "ran", "successfully"]
+[[task.backups.job]]
+source = "tank/backups/first"
+target = "onsite/backups/first"
+on-success = ["echo", "backups/first", "ran", "successfully"]
+[[task.backups.job]]
+source = "tank/backups/second"
+target = "onsite/backups/second"
+on-success = ["echo", "backups/second", "ran", "successfully"]
+
+[task.par]
+parallel = true
+[[task.par.job]]
+# tags are allowed if there's no on-success at the task level
+tags = ["daily", "weekly"]
+source = "tank/other/first"
+target = "onsite/other/first"
+[[task.par.job]]
+tags = ["monthly"]
+source = "tank/other/second"
+target = "onsite/other/second"
+```
