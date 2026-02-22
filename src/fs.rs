@@ -296,24 +296,24 @@ impl<'args> Fs<'args> {
             let mut sorted = Vec::with_capacity(child_datasets.len());
             let mut seen = vec![false; child_datasets.len()];
             let mut stack = Vec::new();
-            let mut finished = Vec::new();
             for idx in 0..child_datasets.len() {
                 if !seen[idx] {
-                    stack.push(idx);
-                    finished.push(idx);
+                    stack.push((idx, graph[idx].iter()));
                     seen[idx] = true;
                 }
-                while let Some(idx) = stack.pop() {
-                    for &idx in graph[idx].iter() {
-                        if !seen[idx] {
-                            stack.push(idx);
-                            finished.push(idx);
-                            seen[idx] = true;
+                while !stack.is_empty() {
+                    let last = stack.last_mut().unwrap();
+                    let current = last.0;
+                    let remaining_children = &mut last.1;
+                    if let Some(&next_child) = remaining_children.next() {
+                        if !seen[next_child] {
+                            stack.push((next_child, graph[next_child].iter()));
+                            seen[next_child] = true;
                         }
+                    } else {
+                        sorted.push(current);
+                        stack.pop();
                     }
-                }
-                while let Some(idx) = finished.pop() {
-                    sorted.push(idx);
                 }
             }
             sorted.reverse();
@@ -495,6 +495,12 @@ mod tests {
 mod test_topological {
     use super::*;
 
+    fn appears_before_in(x: usize, y: usize, sorted: &[usize]) {
+        let x_idx = sorted.iter().position(|&idx| idx == x).unwrap();
+        let y_idx = sorted.iter().position(|&idx| idx == y).unwrap();
+        assert!(x_idx < y_idx, "x:{x}:{x_idx} y:{y}:{y_idx}");
+    }
+
     #[test]
     fn simple_linear() {
         let parent = Fs::new(None, "parent", Role::Target);
@@ -545,5 +551,28 @@ mod test_topological {
         let (sorted, exists) = parent.topological_sort(&unsorted);
         assert!(exists.is_empty());
         assert!(sorted == vec![0, 1, 3, 2] || sorted == vec![0, 3, 1, 2]);
+    }
+
+    #[test]
+    fn example_from_syncoid_pr_572() {
+        let test_pool = Fs::new(None, "testpool1", Role::Target);
+        let mut a = Fs::new(None, "testpool1/A", Role::Target);
+        a.origin = Some("testpool1/B@b".to_string());
+        let a_d = Fs::new(None, "testpool1/A/D", Role::Target);
+        let mut b = Fs::new(None, "testpool1/B", Role::Target);
+        b.origin = Some("testpool1/C@a".to_string());
+        let c = Fs::new(None, "testpool1/C", Role::Target);
+        let unsorted = vec![test_pool, a, b, c, a_d];
+        let (sorted, exists) = unsorted[0].topological_sort(&unsorted);
+        assert!(exists.is_empty());
+        for i in 1..unsorted.len() {
+            appears_before_in(0, i, &sorted);
+        }
+        // A/D
+        appears_before_in(1, 4, &sorted);
+        // a.origin
+        appears_before_in(2, 1, &sorted);
+        // b.origin
+        appears_before_in(3, 2, &sorted);
     }
 }
