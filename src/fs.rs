@@ -161,7 +161,7 @@ impl<'args> Fs<'args> {
     /// 2. any datasets that are excluded but needs to exist for successful cloning
     pub fn topological_sort<'a, 'b: 'a>(
         &self, // parent
-        child_datasets: &'a Vec<Fs<'b>>,
+        child_datasets: &'a [Fs<'b>],
     ) -> (Vec<usize>, HashSet<&'a str>) {
         #[derive(Debug)]
         struct Trie<'a> {
@@ -213,7 +213,7 @@ impl<'args> Fs<'args> {
                 self.children.entry(component).or_insert_with(|| {
                     Box::new(Self {
                         index: None,
-                        dataset: dataset,
+                        dataset,
                         children: HashMap::new(),
                     })
                 })
@@ -243,8 +243,8 @@ impl<'args> Fs<'args> {
             }
         };
         // Insert child datasets
-        for idx in 0..child_datasets.len() {
-            root.insert_str(&self.fs, &child_datasets[idx].fs).index = Some(idx)
+        for (idx, dataset) in child_datasets.iter().enumerate() {
+            root.insert_str(&self.fs, &dataset.fs).index = Some(idx)
         }
         // Keep track of datasets that must exist
         let mut must_exist: HashSet<&'a str> = HashSet::new();
@@ -271,12 +271,12 @@ impl<'args> Fs<'args> {
                     must_exist.insert(node.dataset);
                 }
                 // add children to stack
-                for (_, node) in &node.children {
+                for node in node.children.values() {
                     stack.push((node.deref(), d + 1));
                 }
             }
-            for to in 0..child_datasets.len() {
-                if let Some(origin_dataset) = child_datasets[to].origin_dataset() {
+            for (to, child_dataset) in child_datasets.iter().enumerate() {
+                if let Some(origin_dataset) = child_dataset.origin_dataset() {
                     if let Some(from) = root.get_str(&self.fs, origin_dataset).and_then(|t| t.index)
                     {
                         graph[from].insert(to);

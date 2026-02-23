@@ -14,7 +14,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, warn};
+use log::error;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -183,7 +183,7 @@ impl NormalizedJob {
             let mut command = Command::new(&on_success[0]);
             command.args(&on_success[1..]);
             if let Err(e) = command.stdin(Stdio::null()).status() {
-                warn!("running on-success command failed with {e}");
+                log::warn!("running on-success command failed with {e}");
             }
         }
     }
@@ -233,7 +233,7 @@ impl NormalizedTask {
             match command.spawn() {
                 Ok(handle) => Some(handle),
                 Err(e) => {
-                    warn!("on success command failed with {e}");
+                    log::warn!("on success command failed with {e}");
                     None
                 }
             }
