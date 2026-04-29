@@ -107,7 +107,7 @@ EOF
   echo Creating ${UNIT}@.timer
   cat >/etc/systemd/system/${UNIT}@.timer <<EOF
 [Unit]
-Description=Cithi Run %i
+Description=Chithi Run %i
 
 [Timer]
 OnCalendar=daily

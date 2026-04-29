@@ -27,7 +27,7 @@ flag.
 The last one needs some explanation. Sometimes `mbuffer` is best avoided even
 when available, since it makes network traffic very spiky when the disks are
 slow. `mbuffer` makes it hard to tell if syncing is broken, or there's a network
-problem. Plus in`syncoid`, using `--no-command-checks` assumes `pv`, `mbuffer`,
+problem. Plus in `syncoid`, using `--no-command-checks` assumes `pv`, `mbuffer`,
 are available, but you can tell `chithi sync` which optional commands are not
 available when you use the `--no-command-checks`. 
 

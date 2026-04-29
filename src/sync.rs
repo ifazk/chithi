@@ -1418,7 +1418,7 @@ where {
         Ok(())
     }
 
-    // skip_sync_snapshot is set to true for these senarios
+    // skip_sync_snapshot is set to true for these scenarios
     // 1. fallback clone creation
     // 2. !bookmark && force-delete && delete successful (redo sync and skip snapshot creation beacuse it was already done)
     // 3. sync incremental fails with destination already exists && force delete (redo sync and skip snapshot creating because it was already done)
@@ -1544,7 +1544,7 @@ where {
         let mut target_created = false;
 
         // Finally do syncs
-        // If target does not exist, create it with inital full sync, and get target snaps
+        // If target does not exist, create it with initial full sync, and get target snaps
         let mut target_snaps_list = if !target_exists {
             let fake_new = Snapshot::fake_newest(newest_sync_snapshot.clone());
             let fake_new = (&fake_new).into();

@@ -118,7 +118,7 @@ pub struct SyncArgs {
     #[arg(long, default_value = "false", default_missing_value = "true", value_parser = ["true", "false", "syncoid"], num_args = 0..=1)]
     pub use_hold: String,
 
-    /// Preserves the recordsize on inital sends to the target
+    /// Preserves the recordsize on initial sends to the target
     #[arg(long, conflicts_with = "preserve_properties")]
     pub preserve_recordsize: bool,
 
@@ -193,7 +193,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub debug: bool,
 
-    /// Supresses non-error output and progress bars. Logs overridden by RUST_LOG environment variable
+    /// Suppresses non-error output and progress bars. Logs overridden by RUST_LOG environment variable
     #[arg(long)]
     pub quiet: bool,
 

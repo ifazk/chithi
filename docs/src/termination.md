@@ -1,9 +1,9 @@
 # Forced Termination
 
-**This section of the documentiation is still in progress**
+**This section of the documentation is still in progress**
 
-**This section of the documentiation will likely move**
+**This section of the documentation will likely move**
 
-May levave behind
+May leave behind
 - Pipelines
 - Ssh master

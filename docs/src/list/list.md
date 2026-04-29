@@ -16,7 +16,7 @@ Options:
   -l, --long               Use a long listing format. Shows disabled, sources, targets, commands
   -H, --no-headers         Scripted mode for long listing. Has no effect if long listing is not enabled
       --skip-disabled      Skip disabled tasks and jobs in listings
-      --tags <TAGS>        Filter by tags. Multiple tags can be included by seprating them with commas
+      --tags <TAGS>        Filter by tags. Multiple tags can be included by separating them with commas
       --project <PROJECT>  Name of project. Chithi will look for a .toml file with this name in /etc/chithi/ [default: chithi]
   -h, --help               Print help
   -V, --version            Print version

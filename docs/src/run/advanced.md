@@ -25,7 +25,7 @@ The `RandomizedDelaySec` acts like the `max-initial-delay-secs` option.
 
 ```ini
 [Unit]
-Description=Cithi Run %i
+Description=Chithi Run %i
 
 [Timer]
 OnCalendar=daily
@@ -78,8 +78,8 @@ target = "onsite/home/user1"
 The `timeout` command only terminates its own child process, so in the above
 example `chithi sync` would be killed, but none of the children of `chithi sync`
 would be terminated. The following runs chithi in a `sh` shell to get some of
-the shell job control benefits where grand childen are interrupted when the
-shell exits.
+the shell job control benefits where grandchilden are interrupted when the shell
+exits.
 
 ```toml
 # This example is better
@@ -88,4 +88,4 @@ shell exits.
 command = ["timeout", "6h", "sh", "-c", "chithi sync -r --no-sync-snap --target-host=user@target tank/home/user1 onsite/home/user1"]
 ```
 
-However, timeout has wierd interactions with restarts. If `timeout 6h` is used with restarts.
+However, timeout has weird interactions with restarts. If `timeout 6h` is used with restarts.

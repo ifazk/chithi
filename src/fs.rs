@@ -78,10 +78,10 @@ impl<'args> Fs<'args> {
         // 1. There's a separately provided hostname (which can also contain a
         // username), in which case we .
         // This provided hostname can be the empty string, see below.
-        // 2. There's no seprately provided hostname, and there's a : in fs
+        // 2. There's no separately provided hostname, and there's a : in fs
         // before any '/' -> host:filesystem, user@host:filesystem, or
         // user@host:pool/filesystem
-        // 3. If there's no seprately provided hostname, and there's no : in fs,
+        // 3. If there's no separately provided hostname, and there's no : in fs,
         // then fs is treated as a local filesystem
         //
         // Syncoid tries to figure out if : is part of a local pool name or if
@@ -482,11 +482,11 @@ mod tests {
             role: _,
             origin: _,
         } = Fs::new(
-            Some("user:wierduser@host:wierdhost"),
+            Some("user:weirduser@host:weirdhost"),
             "poolnothost:alsopool/filesystem:alsofs",
             Role::Source,
         );
-        assert_eq!(host, Some("user:wierduser@host:wierdhost"));
+        assert_eq!(host, Some("user:weirduser@host:weirdhost"));
         assert_eq!(fs, "poolnothost:alsopool/filesystem:alsofs");
     }
 }

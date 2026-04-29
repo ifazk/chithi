@@ -1,8 +1,8 @@
 # Advanced sync
 
-Chithi offers many advanced options for syncing. We highlight some of options
-useful for common replication senarios, but a full set of options can be found
-using the following command.
+Chithi offers many advanced options for syncing. We highlight some of the
+options useful for common replication scenarios, but a full set of options can
+be found using the following command.
 
     chithi help sync
 
@@ -33,7 +33,7 @@ a remote host.
 
 ## External Snapshotting tools
 
-Chithi is in many ways, expected to be used with external snapshotting tools,
+Chithi is, in many ways, expected to be used with external snapshotting tools,
 such as [Sanoid](https://github.com/jimsalterjrs/sanoid/). In fact, the `sync`
 command in Chithi is a port of the Syncoid tool that comes bundled with Sanoid.
 
@@ -62,10 +62,10 @@ documentation](https://docs.rs/chrono/0.4.43/chrono/format/strftime/).
 
 ### Extra identifier
 
-An extra identifer can be passed to the `sync` command to change the sync snap names to
-`chithi_{identifier}{hostname}_date`.
+An extra identifier can be passed to the `sync` command to change the sync snap
+names to `chithi_{identifier}{hostname}_date`.
 
-    chithi sync --identifer nightly sourcepool/myfiles targetpool/myfiles
+    chithi sync --identifier nightly sourcepool/myfiles targetpool/myfiles
 
 ### Sync snaps pruning
 
@@ -73,13 +73,13 @@ By default, chithi will also prune previous sync snaps (with the same hostname
 and identifier) after replication. This pruning can be prevented using the
 `--keep-sync-snap` flag.
 
-    chithi sync --identifer nightly --keep-sync-snap sourcepool/myfiles targetpool/myfiles
+    chithi sync --identifier nightly --keep-sync-snap sourcepool/myfiles targetpool/myfiles
 
 ### Preventing sync snaps
 
 If there are rapid enough snapshots using an external snapshotting tool, you may
 not need sync snaps. Sync snaps can be prevented using the `--no-sync-snap`
-flag. For example, if there are hourly snapshots that are not pruned for over a 
+flag.
 
     chithi sync --no-sync-snap sourcepool/myfiles targetpool/myfiles
 
@@ -122,15 +122,15 @@ Options:
       --create-bookmark
           Creates a zfs bookmark for the newest snapshot on source after replication succeeds. Unless --syncoid-bookmarks is set, the bookmark name includes the identifier if set
       --syncoid-bookmarks
-          Use the sanoid/syncoid 2.3 bookmark behaviour. This should be treated as an experinmental feature, and may not be kept in future minor revisions
+          Use the sanoid/syncoid 2.3 bookmark behaviour. This should be treated as an experimental feature, and may not be kept in future minor revisions
       --syncoid-sync-check
-          Use "syncoid:sync" property to check if we should sync sync. This should be treated as an experinmental feature, and may not be kept in future minor revisions
+          Use "syncoid:sync" property to check if we should sync sync. This should be treated as an experimental feature, and may not be kept in future minor revisions
       --prune-format <SNAPFORMAT>
           If transfer creates new sync snaps, this option chooses what kind of snapshot formats to prune at the end of transfers. Current options are syncoid and chithi. Needs to be passed multiple times for multiple formats [default: chithi]
       --use-hold [<USE_HOLD>]
           Adds a hold to the newest snapshot on the source and target after replication and removes the hold after the next successful replication. The hold name includes the identifier if set. This allows for separate holds in case of multiple targets. Can be optionally passed the value "syncoid" to make syncoid compatible holds [default: false] [possible values: true, false, syncoid]
       --preserve-recordsize
-          Preserves the recordsize on inital sends to the target
+          Preserves the recordsize on initial sends to the target
       --preserve-properties
           Preserves locally set dataset properties similar to the zfs send -p flag, but will also work for encrypted datasets in non raw sends. Properties are manually fetched on the source and manually written to on the target, with a blacklist of properties that cannot be written
       --no-rollback
@@ -164,7 +164,7 @@ Options:
       --debug
           Prints out a lot of additional information during a chithi run. Logs overridden by --quiet and RUST_LOG environment variable
       --quiet
-          Supresses non-error output and progress bars. Logs overridden by RUST_LOG environment variable
+          Suppresses non-error output and progress bars. Logs overridden by RUST_LOG environment variable
       --dump-snaps
           Dumps a list of snapshots during the run
       --no-command-checks

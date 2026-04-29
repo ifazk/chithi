@@ -32,7 +32,7 @@ pub struct ListArgs {
     #[arg(long)]
     pub skip_disabled: bool,
 
-    /// Filter by tags. Multiple tags can be included by seprating them with commas.
+    /// Filter by tags. Multiple tags can be included by separating them with commas.
     #[arg(long)]
     pub tags: Option<String>,
 

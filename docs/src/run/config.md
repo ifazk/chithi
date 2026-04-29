@@ -23,8 +23,8 @@ The toml files in `/etc/chithi` are called project files. The only thing special
 about `/etc/chithi/chithi.toml` file is that it is the default. This file does
 not need to exist to run tasks or jobs in other project files.
 
-If there is a project file `/etc/chithi/mysyncs.toml`, then `chith run --project
-mysyncs` can be used to run the tasks in that file.
+If there is a project file `/etc/chithi/mysyncs.toml`, then `chithi run
+--project mysyncs` can be used to run the tasks in that file.
 
 ## Command overrides
 
@@ -81,7 +81,7 @@ However, the runner does enforce one thing. If the command for a job is a
 # This is a valid command.
 command = ["echo", "hello"]
 [[task.home.job]]
-# So is this, and it run the same command
+# So is this, and it runs the same command
 target = "hello"
 command = ["echo"]
 
@@ -119,8 +119,8 @@ command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"
 #max-initial-delay-secs = 10
 # Uncomment to automatically restart jobs.
 #max-restarts = 5
-# Uncomment to add delays be between restart jobs. In the example below, the
-# first delay will be 2 mins, the second delay will be 4 mins, and the rest of
+# Uncomment to add delays between restart jobs. In the example below, the first
+# delay will be 2 mins, the second delay will be 4 mins, and the rest of
 # restarts will delay 5 mins before starting.
 #restart-delay-secs = [120,240,300]
 # Uncomment to add a randomized jitter to restarts (in addition to the restart delay).
@@ -211,7 +211,7 @@ On-success commands can be added at both tasks and jobs, but there are some
 restrictions. For parallel tasks, the task can only have an on-success command
 if the jobs in the task do not have tags.
 
-Theres no error tracking for on-success commands. Failures are ignored.
+There is no error tracking for on-success commands. Failures are ignored.
 
 ```toml
 command = ["chithi", "sync", "-r", "--no-sync-snap", "--target-host=user@target"]

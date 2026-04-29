@@ -70,6 +70,6 @@ schedules for deleted jobs.
 ## Not intended for advanced scheduling
 
 This script cannot handle advanced scheduling needs, e.g. hourly, weekly or
-monthly scheduling. For those senarios, we recommend using
+monthly scheduling. For those scenarios, we recommend using
 [tags](../run/config.md) and creating your own scripts using the
 `chithi-systemd` script as a starting point.

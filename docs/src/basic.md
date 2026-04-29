@@ -4,7 +4,8 @@ The basic command in `chithi` is the `sync` command.
 
 Suppose you have two zfs pools, `sourcepool` and `targetpool`, and a
 dataset/filesystem `sourcepool/myfiles` that you want to replicate from
-`sourcepool` to `targetpool`. Using the following command.
+`sourcepool` to `targetpool`. To accomplish this using `chithi` you would use
+the following command.
 
     chithi sync sourcepool/myfiles targetpool/myfiles
 
