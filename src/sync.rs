@@ -1423,7 +1423,7 @@ where {
     // 2. !bookmark && force-delete && delete successful (redo sync and skip snapshot creation beacuse it was already done)
     // 3. sync incremental fails with destination already exists && force delete (redo sync and skip snapshot creating because it was already done)
     /// Syncs a single dataset
-    fn sync_dataset(&self, source: &Fs, target: &Fs, skip_sync_snapshot: bool) -> io::Result<()> {
+    fn sync_dataset(&self, source: &Fs, target: &Fs) -> io::Result<()> {
         debug!("syncing source {} to target {}", source, target);
         let sync_check_property = if self.args.syncoid_sync_check {
             "syncoid:sync"
@@ -1507,7 +1507,7 @@ where {
         self.dump_snaps_maybe(source, &source_snaps);
 
         let mut created_new_sync_snap = None;
-        let newest_sync_snapshot = if !self.args.no_sync_snap && !skip_sync_snapshot {
+        let newest_sync_snapshot = if !self.args.no_sync_snap {
             let new_sync_snap = self.new_sync_snap(source)?;
             if let Some(new_snap_name) = new_sync_snap {
                 // before returning, update source snaps
@@ -1971,7 +1971,7 @@ pub fn main(args: SyncArgs) -> io::Result<()> {
 
     // Check if recursive
     if !args.recursive {
-        cmds.sync_dataset(&source, &target, false)?
+        cmds.sync_dataset(&source, &target)?
     } else {
         // Get child datasets
         let datasets = cmds.get_child_datasets(&source)?;
@@ -2026,11 +2026,11 @@ pub fn main(args: SyncArgs) -> io::Result<()> {
             for idx in sorted {
                 let fs = &datasets[idx];
                 let child_target = &targets[idx];
-                cmds.sync_dataset(fs, child_target, false)?;
+                cmds.sync_dataset(fs, child_target)?;
             }
         } else {
             for (fs, child_target) in datasets.iter().zip(targets.iter()) {
-                cmds.sync_dataset(fs, child_target, false)?;
+                cmds.sync_dataset(fs, child_target)?;
             }
         }
     }
