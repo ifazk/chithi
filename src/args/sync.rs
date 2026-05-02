@@ -89,13 +89,13 @@ pub struct SyncArgs {
     pub create_bookmark: bool,
 
     /// Use the sanoid/syncoid 2.3 bookmark behaviour. This should be treated as
-    /// an experinmental feature, and may not be kept in future minor revisions.
+    /// an experimental feature, and may not be kept in future minor revisions.
     #[arg(long, requires = "no_sync_snap", requires = "create_bookmark")]
     pub syncoid_bookmarks: bool,
 
-    /// Use "syncoid:sync" property to check if we should sync sync. This should
-    /// be treated as an experinmental feature, and may not be kept in future
-    /// minor revisions.
+    /// Use "syncoid:sync" property to check if we should sync. This should be
+    /// treated as an experimental feature, and may not be kept in future minor
+    /// revisions.
     #[arg(long)]
     pub syncoid_sync_check: bool,
 
@@ -351,7 +351,7 @@ impl SyncArgs {
             !zfs::is_component_char(c)
         }
         if value.contains(invalid_char) {
-            Err("extra indentifier contains invalid chars!")
+            Err("extra identifier contains invalid chars!")
         } else {
             Ok(value.to_string())
         }

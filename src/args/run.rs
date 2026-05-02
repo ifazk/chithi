@@ -43,7 +43,7 @@ pub struct RunArgs {
 
     /// Name of sync task in project (NAME), or a specific job in a task
     /// (NAME.JOB). If no tasks are provided, the all tasks in the project are
-    /// run. If just a task name NAME is provided, the runner wil run all jobs
+    /// run. If just a task name NAME is provided, the runner will run all jobs
     /// in that task. If both a task name and job index NAME.JOB is provided,
     /// the runner will only run that job. The runner will recursively call
     /// itself using the NAME.JOB format for running parallel tasks. Running a
